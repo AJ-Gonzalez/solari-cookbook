@@ -6,3 +6,9 @@ __pycache__/
 .venv/
 venv/
 screenshot.png
+
+AGENTS.md
+DESIGN.md
+LESSONS.md
+.env
+docs/
