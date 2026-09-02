@@ -10,7 +10,9 @@ screenshot.png
 AGENTS.md
 DESIGN.md
 LESSONS.md
-.env
-docs/
+ROADMAP.md
+PENDING.md
+jobber.sqlite3
 dd/
+docs/
 .handoffs/

@@ -1,0 +1,41 @@
+# Job search criteria. Everything here is yours to tune.
+
+[titles]
+# A listing is harvested if its title contains any "include" token (and none
+# of the "exclude" tokens). Broad is fine: the ranker sorts, you curate.
+include = [
+  "customer success", "backend", "python", "gtm", "go-to-market",
+  "technical writer", "documentation", "developer advocate",
+  "agentic", "rpa", "process improvement", "automation",
+  "developer", "engineer", "solutions", "support",
+]
+exclude = ["recruiter", "sourcer", "talent acquisition"]
+
+[comp]
+# Only USD listings are floor-checked in v1. Other currencies are recorded
+# as-is and ranked as unknown-comp.
+min_usd = 35000
+
+[rank]
+# Multiplier applied to comp when a degree is explicitly required.
+degree_penalty = 0.75
+
+[location]
+# Explicit accept tokens win over reject tokens (order matters).
+accept = [
+  "mexico", "latam", "latin america", "worldwide", "anywhere",
+  "global", "americas", "north america",
+]
+reject = [
+  "united states", "usa", "u.s.", "us only", "usa only", "us-based", "canada", "united kingdom", "uk",
+  "europe", "emea", "eu", "apac", "asia", "australia", "new zealand",
+  "japan", "singapore", "india", "philippines", "indonesia", "vietnam",
+  "china", "africa", "middle east",
+  "brazil", "argentina", "chile", "colombia", "peru", "uruguay",
+  "paraguay", "bolivia", "ecuador", "venezuela", "panama", "costa rica",
+  "guatemala", "honduras", "nicaragua", "el salvador", "belize", "cuba",
+  "germany", "france", "spain", "italy", "portugal", "netherlands",
+  "poland", "romania", "ukraine", "sweden", "norway", "denmark",
+  "finland", "ireland", "switzerland", "austria", "belgium", "czech",
+  "greece", "hungary",
+]

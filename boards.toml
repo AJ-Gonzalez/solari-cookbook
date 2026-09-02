@@ -1,0 +1,17 @@
+# Seed board tokens, each verified live on 2026-09-02.
+# Grow this list over time: a token is the company's board slug, e.g.
+#   greenhouse: https://boards-api.greenhouse.io/v1/boards/<token>/jobs
+#   lever:      https://api.lever.co/v0/postings/<token>?mode=json
+#   ashby:      https://api.ashbyhq.com/posting-api/job-board/<token>
+
+[greenhouse]
+tokens = ["gitlab", "stripe", "coinbase", "dropbox", "airbnb", "databricks", "flexport", "samsara"]
+
+[lever]
+tokens = ["rover"]
+
+[ashby]
+tokens = ["ashby", "deepgram", "temporal"]
+
+[remoteok]
+enabled = true
