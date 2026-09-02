@@ -19,6 +19,10 @@ from dataclasses import dataclass, field
 
 from .answers import AnswersBank
 
+DECLINE_PAT = re.compile(
+    r"decline|none of the|not applicable|don't wish|do not want|prefer not",
+    re.I)
+EEO_PAT = re.compile(r"gender|ethnic|race|veteran|disability|identify", re.I)
 NEXT_PAT = re.compile(r"\b(next|continue)\b", re.I)
 SUBMIT_PAT = re.compile(r"\b(submit|apply)\b", re.I)
 
@@ -108,8 +112,8 @@ def fill_from_bank(frame, fields: list[FormField], bank: AnswersBank,
         if not answer:
             continue
         if entry is None:
-            asked += 1
             if not is_eeo:
+                asked += 1
                 bank.learn(f.label, answer, f.kind)
         else:
             from_bank += 1
@@ -137,10 +141,12 @@ def fill_from_bank(frame, fields: list[FormField], bank: AnswersBank,
             elif f.kind == "select" and "location" in f.label.lower():
                 # geo-typeahead: type, wait, pick the suggestion
                 loc.click(timeout=5000)
-                loc.type(answer, delay=60)
+                loc.type(answer.split(",")[0].strip(), delay=60)
                 frame.page.wait_for_timeout(2500)
+                # suggestions expand the typed city ("Mexico City, Ciudad de
+                # México..."), so match on the typed prefix only
                 frame.locator(".select__menu .select__option",
-                              has_text=answer).first.click(timeout=5000)
+                              has_text=answer.split(",")[0]).first.click(timeout=5000)
             elif f.kind == "select":
                 loc.click(timeout=5000)
                 frame.locator(".select__menu .select__option",
@@ -148,7 +154,7 @@ def fill_from_bank(frame, fields: list[FormField], bank: AnswersBank,
             else:
                 loc.fill(answer, timeout=5000)
         except Exception as e:
-            print(f"  fill failed [{f.label[:40]}]: {str(e)[:50]}")
+            print(f"  fill failed [{f.label[:40]}]: {str(e)[:400]}")
     return from_bank, asked
 
 
@@ -178,11 +184,24 @@ def walk_and_fill(page, app_frame, resume_path, bank: AnswersBank,
     pages_walked = 0
     while True:
         pages_walked += 1
-        fields = discover_fields(app_frame)
-        visible = [f for f in fields]
+        # Conditional questions mount only after earlier fields are filled,
+        # so re-discover until the field set stabilizes (bounded).
+        prev_ids = set()
+        from_bank = asked = 0
+        for _ in range(4):
+            fields = discover_fields(app_frame)
+            new_ids = {f.locator_id for f in fields}
+            from_bank, asked = fill_from_bank(app_frame, fields, bank,
+                                              ask_callback)
+            fields2 = discover_fields(app_frame)
+            new_ids2 = {f.locator_id for f in fields2}
+            if new_ids2 == new_ids or new_ids2 == prev_ids:
+                fields = fields2
+                break
+            prev_ids = new_ids
+        visible = fields
         log_fields = ", ".join(f.label[:30] for f in visible[:12])
         print(f"page {pages_walked}: {len(visible)} fields ({log_fields}...)")
-        from_bank, asked = fill_from_bank(app_frame, visible, bank, ask_callback)
         print(f"  bank={from_bank} asked={asked}")
         attach_resume(app_frame, page, resume_path)
 

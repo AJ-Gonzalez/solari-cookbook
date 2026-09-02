@@ -46,7 +46,12 @@ class AnswersBank:
         self.conn.commit()
 
     def lookup(self, question: str) -> BankEntry | None:
-        """Exact normalized match, then containment match. None = ask."""
+        """Exact normalized match, then containment match. None = ask.
+
+        Containment needs a multi-word stored key (or a toggle seed):
+        single generic words like "country" would otherwise inject their
+        answer into every question containing that word.
+        """
         q = normalize(question)
         if not q:
             return None
@@ -60,7 +65,11 @@ class AnswersBank:
             ).fetchall()
             for r in rows:
                 rq = normalize(r["question"])
-                if rq and (rq in q or q in rq):
+                broad = r["kind"] == "toggle"
+                if rq and len(rq.split()) >= 2 and (rq in q or q in rq):
+                    row = r
+                    break
+                if rq and broad and rq in q:
                     row = r
                     break
         if row is None:
