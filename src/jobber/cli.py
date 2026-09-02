@@ -155,11 +155,18 @@ def main(argv: list[str] | None = None) -> None:
     v.set_defaults(func=cmd_view)
 
     o = sub.add_parser("open", parents=[common], help="open a job's posting URL in the browser")
-    o.add_argument("id", type=int)
-    o.set_defaults(func=cmd_open)
+
+    d = sub.add_parser("dashboard", parents=[common], help="local web view of the queue")
+    d.add_argument("--port", type=int, default=8799)
+    d.set_defaults(func=cmd_dashboard)
 
     args = p.parse_args(argv)
     args.func(args)
+
+
+def cmd_dashboard(args: argparse.Namespace) -> None:
+    from .dashboard import serve  # deferred: keeps CLI startup free of server imports
+    serve(args.port, args.db)
 
 
 if __name__ == "__main__":
