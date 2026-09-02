@@ -4,6 +4,7 @@ The answers table exists from day one because the application driver
 (next milestone) fills form fields from it; the schema is cheap to land
 now and keeps the design coherent.
 """
+import json
 import sqlite3
 from pathlib import Path
 
@@ -44,16 +45,28 @@ CREATE TABLE IF NOT EXISTS answers (
 """
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    # CREATE TABLE IF NOT EXISTS never alters existing tables; add the
+    # gate-scanner columns here when they're missing.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+    if "gate_flags" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN gate_flags TEXT")
+    if "hard_block" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN hard_block INTEGER NOT NULL DEFAULT 0")
+    conn.commit()
+
+
 def connect(path: Path = DEFAULT_DB) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 
 def upsert_jobs(conn: sqlite3.Connection, rows: list[dict], now: str) -> None:
-    """Insert or refresh job rows. Never touches `status`: manual triage
-    (queued/hidden/applied) survives re-harvests."""
+    """Insert or refresh job rows. Never touches `status` or the gate
+    columns: manual triage and scan results survive re-harvests."""
     for r in rows:
         conn.execute(
             """
@@ -97,12 +110,31 @@ def set_status(conn: sqlite3.Connection, rowid: int, status: str) -> bool:
     return cur.rowcount > 0
 
 
+def set_gate_result(conn: sqlite3.Connection, rowid: int, gates: dict) -> bool:
+    """Store scan outcome. Empty gates = scanned clean; hard_block is
+    derived and excludes the job from default queue views."""
+    from .gates import is_hard_block
+
+    cur = conn.execute(
+        "UPDATE jobs SET gate_flags=?, hard_block=? WHERE rowid=?",
+        (json.dumps(gates), int(is_hard_block(gates)), rowid),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def ranked_rows(
     conn: sqlite3.Connection,
     statuses: tuple[str, ...] = ("new", "queued"),
     eligible_only: bool = True,
+    include_gated: bool = False,
 ):
-    sql = "SELECT rowid, * FROM jobs WHERE status IN (%s)" % ",".join("?" * len(statuses))
+    sql = (
+        "SELECT rowid, * FROM jobs WHERE status IN (%s)"
+        % ",".join("?" * len(statuses))
+    )
+    if not include_gated:
+        sql += " AND hard_block=0"
     rows = conn.execute(sql, statuses).fetchall()
     if eligible_only:
         rows = [r for r in rows if r["location_eligible"] in ("yes", "unknown")]

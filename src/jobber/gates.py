@@ -12,6 +12,9 @@ Form HTML sources (proven 2026-09-02):
 - ashby: JS-rendered — requires a real browser (Solari session).
 """
 import re
+import urllib.request
+
+from .sources.base import HEADERS
 
 GATE_PATTERNS: dict[str, list[str]] = {
     "residency": [
@@ -73,3 +76,47 @@ def is_hard_block(gates: dict[str, list[str]]) -> bool:
     Mexico-based applicant; auth/sponsorship usually are too (no US visa
     sponsorship for remote-global roles). Timezone/onsite are soft signals."""
     return bool(set(gates) & {"residency", "relocation", "work_auth", "sponsorship"})
+
+
+def extract_questions(html: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in re.finditer(r"<label[^>]*>(.*?)</label>", html, re.S):
+        t = re.sub(r"<[^>]+>", " ", m.group(1))
+        t = re.sub(r"\s+", " ", t).strip().rstrip("*").strip()
+        if len(t) > 1 and t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    return out
+
+
+def fetch_questions(url: str, timeout: int = 30) -> list[str] | None:
+    """Fetch a server-rendered application form and extract its questions.
+    None = no form found at this URL (custom-hosted boards, redirects) or
+    fetch failed — an inconclusive scan, never a pass."""
+    try:
+        req = urllib.request.Request(url, headers=HEADERS)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            html = resp.read().decode("utf-8", "replace")
+    except Exception:
+        return None
+    if "application--questions" not in html and "<form" not in html:
+        return None
+    questions = extract_questions(html)
+    return questions or None
+
+
+def scan_job(source: str, url: str, company: str, source_job_id: str):
+    """Returns (questions | None, gates). None questions = inconclusive.
+    Ashby needs a JS-rendering browser (Solari) and is not wired here yet."""
+    if source == "greenhouse":
+        questions = fetch_questions(
+            f"https://job-boards.greenhouse.io/{company}/jobs/{source_job_id}"
+        )
+    elif source == "lever":
+        questions = fetch_questions(url.rstrip("/") + "/apply")
+    else:
+        return None, {}
+    if questions is None:
+        return None, {}
+    return questions, classify(questions)
