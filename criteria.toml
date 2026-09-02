@@ -8,6 +8,7 @@ include = [
   "technical writer", "documentation", "developer advocate",
   "agentic", "rpa", "process improvement", "automation",
   "developer", "engineer", "solutions", "support",
+  "junior", "entry level", "graduate", "apprentice", "associate",
 ]
 exclude = ["recruiter", "sourcer", "talent acquisition"]
 
