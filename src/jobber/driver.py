@@ -60,6 +60,7 @@ def discover_fields(frame) -> list[FormField]:
                     label: label ? label.textContent.trim() : null,
                     required: !!(el.required || el.hasAttribute('aria-required')),
                     options: opts,
+                    isSelect: !!el.closest('.select__control'),
                 };
             }""")
         label = (info["label"] or info["aria"] or info["name"] or
@@ -73,7 +74,7 @@ def discover_fields(frame) -> list[FormField]:
             continue
         seen.add(key)
         kind = info["type"].lower()
-        if kind in ("combobox", "search") or "select__input" in (info["name"] or ""):
+        if info.get("isSelect"):
             kind = "select"
         fields.append(FormField(
             label=label.rstrip("*").strip(), kind=kind,

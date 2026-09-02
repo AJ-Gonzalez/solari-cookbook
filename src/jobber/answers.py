@@ -10,6 +10,7 @@ get submitted under the human's name.
 import re
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from datetime import datetime, timezone
 
 
@@ -71,3 +72,23 @@ class AnswersBank:
             "SELECT question, answer, kind FROM answers ORDER BY question"
         ).fetchall()
         return [BankEntry(r["question"], r["answer"], r["kind"]) for r in rows]
+
+
+def seed_from_file(bank: AnswersBank, path) -> int:
+    """Load human-editable TOML seeds into the bank. File entries win over
+    previously-learned sqlite answers (the file is the curated source).
+    Format: [slug] with `question` and `answer` keys."""
+    import tomllib
+
+    p = Path(path)
+    if not p.exists():
+        return 0
+    data = tomllib.loads(p.read_text())
+    count = 0
+    for section, values in data.items():
+        q = values.get("question")
+        a = values.get("answer")
+        if q and a:
+            bank.learn(q, a, kind="file")
+            count += 1
+    return count

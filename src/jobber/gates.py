@@ -46,6 +46,10 @@ GATE_PATTERNS: dict[str, list[str]] = {
         r"from our .{0,40}office",
         r"from our .{0,40}hq",
     ],
+    "clearance": [
+        r"top secret|ts/?sci|security clearance",
+        r"active .*clearance",
+    ],
     "timezone": [
         r"time ?zone",
         r"hours (?:of|from) (?:cet|pt|est|gmt|utc)",
