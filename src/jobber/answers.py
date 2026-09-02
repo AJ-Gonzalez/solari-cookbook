@@ -85,7 +85,24 @@ def seed_from_file(bank: AnswersBank, path) -> int:
         return 0
     data = tomllib.loads(p.read_text())
     count = 0
+
+    toggles = data.get("toggles", {})
+    toggle_seeds = []
+    if toggles.get("no_sponsorship"):
+        toggle_seeds.append(("sponsorship", "No"))
+    if toggles.get("no_relocation"):
+        toggle_seeds.append(
+            ("relocate", "No — I am not willing to relocate"))
+    if toggles.get("no_clearance"):
+        toggle_seeds.append(("clearance", "No"))
+        toggle_seeds.append(("top secret", "No"))
+    for q, a in toggle_seeds:
+        bank.learn(q, a, kind="toggle")
+        count += 1
+
     for section, values in data.items():
+        if section == "toggles":
+            continue
         q = values.get("question")
         a = values.get("answer")
         if q and a:

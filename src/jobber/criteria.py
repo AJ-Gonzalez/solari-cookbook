@@ -15,12 +15,19 @@ class Criteria:
     degree_penalty: float
     loc_accept: list[str]
     loc_reject: list[str]
+    desc_exclude: list[str]
 
     def title_matches(self, title: str) -> bool:
         t = title.lower()
         if any(x in t for x in self.title_exclude):
             return False
         return any(i in t for i in self.title_include)
+
+    def text_allowed(self, text: str) -> bool:
+        """False when a description/title hits an excluded token
+        (e.g. public-sector clearance requirements)."""
+        t = (text or "").lower()
+        return not any(x in t for x in self.desc_exclude)
 
 
 def load_criteria(path: Path = DEFAULT_CRITERIA) -> Criteria:
@@ -32,6 +39,7 @@ def load_criteria(path: Path = DEFAULT_CRITERIA) -> Criteria:
         degree_penalty=d["rank"]["degree_penalty"],
         loc_accept=d["location"]["accept"],
         loc_reject=d["location"]["reject"],
+        desc_exclude=d["filters"]["exclude_description"],
     )
 
 

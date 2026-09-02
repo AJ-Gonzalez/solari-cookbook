@@ -92,35 +92,63 @@ def fill_from_bank(frame, fields: list[FormField], bank: AnswersBank,
     """
     unknown = [f for f in fields
                if f.kind in ("text", "textarea", "select", "tel", "email")
-               and bank.lookup(f.label) is None]
+               and bank.lookup(f.label) is None
+               and not (f.kind == "select" and EEO_PAT.search(f.label))]
     human_answers = ask_callback(unknown) if unknown else {}
 
     from_bank = asked = 0
     for f in fields:
         if f.kind == "file":
             continue  # uploads handled by the resume step
+        is_eeo = f.kind == "select" and EEO_PAT.search(f.label)
         entry = bank.lookup(f.label)
         answer = entry.answer if entry else human_answers.get(f.label)
+        if not answer and is_eeo:
+            answer = "DECLINE"  # toggle-driven auto-decline
         if not answer:
             continue
         if entry is None:
             asked += 1
-            bank.learn(f.label, answer, f.kind)
+            if not is_eeo:
+                bank.learn(f.label, answer, f.kind)
         else:
             from_bank += 1
         try:
             loc = frame.locator(f.locator_id).first
-            if f.kind == "select":
+            if is_eeo:
+                # pick the least committal option (decline/no-answer)
+                loc.click(timeout=5000)
+                opts = frame.locator(".select__menu .select__option")
+                target = next((i for i in range(opts.count())
+                               if DECLINE_PAT.search(opts.nth(i).inner_text())),
+                              None)
+                if target is None:
+                    page.keyboard.press("Escape")
+                    continue
+                opts.nth(target).click(timeout=5000)
+            elif f.kind == "checkbox":
+                # answer "yes" checks it; decline/none-style labels get
+                # checked (group-exit options); "no" leaves unchecked
+                should_check = answer.strip().lower() in (
+                    "yes", "y", "true", "1", "check") or bool(
+                    DECLINE_PAT.search(f.label))
+                if should_check:
+                    loc.check(timeout=5000)
+            elif f.kind == "select" and "location" in f.label.lower():
+                # geo-typeahead: type, wait, pick the suggestion
+                loc.click(timeout=5000)
+                loc.type(answer, delay=60)
+                frame.page.wait_for_timeout(2500)
+                frame.locator(".select__menu .select__option",
+                              has_text=answer).first.click(timeout=5000)
+            elif f.kind == "select":
                 loc.click(timeout=5000)
                 frame.locator(".select__menu .select__option",
                               has_text=answer).first.click(timeout=5000)
-            elif f.kind == "textarea":
-                loc.fill(answer, timeout=5000)
             else:
                 loc.fill(answer, timeout=5000)
         except Exception as e:
-            _short = str(e)[:50]
-            print(f"  fill failed [{f.label[:40]}]: {_short}")
+            print(f"  fill failed [{f.label[:40]}]: {str(e)[:50]}")
     return from_bank, asked
 
 

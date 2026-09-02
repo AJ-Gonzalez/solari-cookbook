@@ -41,7 +41,9 @@ def cmd_harvest(args: argparse.Namespace) -> None:
                 failed += 1
                 print(f"  {name}/{token}: {e}", file=sys.stderr)
                 continue
-            rows = [r for r in rows if criteria.title_matches(r["title"])]
+            rows = [r for r in rows
+                    if criteria.title_matches(r["title"])
+                    and criteria.text_allowed(r["title"] + " " + r["description"])]
             rank.enrich(rows, criteria)
             all_rows.extend(rows)
             ok += 1

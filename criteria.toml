@@ -12,6 +12,14 @@ include = [
 ]
 exclude = ["recruiter", "sourcer", "talent acquisition"]
 
+[filters]
+# Skip listings whose title OR description mentions any of these tokens
+# (case-insensitive). Toggled by personal criteria, not by the tool.
+exclude_description = [
+  "public sector", "top secret", "security clearance", "ts/sci",
+  "able to obtain", "interim clearance",
+]
+
 [comp]
 # Only USD listings are floor-checked in v1. Other currencies are recorded
 # as-is and ranked as unknown-comp.
