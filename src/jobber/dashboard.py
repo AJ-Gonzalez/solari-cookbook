@@ -211,6 +211,7 @@ function render() {
       <td class="num">${esc(comp(r))}</td>
       <td>${r.rep_rating == null ? '<span class="dim">…</span>' :
           r.rep_rating.toFixed(1) + "★"}</td>
+      <td class="${r.location_eligible}">${r.location_eligible}</td>
       <td>${r.degree_flag}</td>
       <td class="st-${r.status}">${r.status}</td>
       <td>${esc(r.company)}</td>
