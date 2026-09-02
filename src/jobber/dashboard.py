@@ -114,6 +114,7 @@ _PAGE = """<!doctype html>
   <table>
     <thead><tr>
       <th>id</th><th class="num">ratio</th><th class="num">comp usd</th>
+      <th>rep</th>
       <th>elg</th><th>deg</th><th>st</th><th>company</th><th>title</th>
     </tr></thead>
     <tbody id="rows"></tbody>
@@ -208,7 +209,8 @@ function render() {
       <td class="id">${r.rowid}</td>
       <td class="num">${ratioTxt(r)}</td>
       <td class="num">${esc(comp(r))}</td>
-      <td class="${r.location_eligible}">${r.location_eligible}</td>
+      <td>${r.rep_rating == null ? '<span class="dim">…</span>' :
+          r.rep_rating.toFixed(1) + "★"}</td>
       <td>${r.degree_flag}</td>
       <td class="st-${r.status}">${r.status}</td>
       <td>${esc(r.company)}</td>
@@ -231,7 +233,11 @@ comp      ${esc(comp(r))} (${esc(r.comp_confidence)})
 location  ${esc(r.location)}
 eligible  ${r.location_eligible}   degree ${r.degree_flag}   qual ${r.qual_score}
 status    ${r.status}
-url       <a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a></div>
+url       <a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a>
+reputation ${r.rep_rating == null ? "not checked yet" :
+   r.rep_rating.toFixed(1) + "★ (" + (r.rep_reviews ?? "?") + " reviews)"}
+${r.rep_signals && r.rep_signals !== "[]" ?
+   "signals   " + JSON.parse(r.rep_signals).map(s => "· " + s).join("\n           ") : ""}</div>
     <div class="desc">${esc(r.description)}</div>`;
 }
 async function pick(id) {
@@ -264,29 +270,44 @@ _JOB_ROUTE = re.compile(r"^/api/job/(\d+)$")
 def _jobs_payload(path: str) -> list[dict]:
     conn = db.connect(Path(path))
     try:
-        rows = db.ranked_rows(
-            conn,
-            statuses=("new", "queued", "staged", "hidden", "applied", "rejected"),
-            eligible_only=False,
-        )
+        rows = conn.execute(
+            """
+            SELECT j.rowid, j.ratio, j.comp_min, j.comp_max, j.comp_currency,
+                   j.comp_confidence, j.location_eligible, j.degree_flag,
+                   j.status, j.company, j.title, j.source,
+                   r.rating AS rep_rating, r.reviews AS rep_reviews
+            FROM jobs j
+            LEFT JOIN reputation r ON r.company = lower(j.company)
+            WHERE j.status IN
+                  ('new','queued','staged','hidden','applied','rejected')
+            """).fetchall()
     finally:
         conn.close()
     fields = ("rowid", "ratio", "comp_min", "comp_max", "comp_currency",
               "comp_confidence", "location_eligible", "degree_flag", "status",
-              "company", "title", "source")
+              "company", "title", "source", "rep_rating", "rep_reviews")
     return [{f: r[f] for f in fields} for r in rows]
 
 
 def _job_payload(path: str, rowid: int) -> dict | None:
     conn = db.connect(Path(path))
     try:
-        r = conn.execute("SELECT rowid, * FROM jobs WHERE rowid=?", (rowid,)).fetchone()
+        r = conn.execute(
+            """
+            SELECT j.rowid, j.*, r.rating AS rep_rating,
+                   r.reviews AS rep_reviews, r.signals AS rep_signals,
+                   r.checked_at AS rep_checked
+            FROM jobs j
+            LEFT JOIN reputation r ON r.company = lower(j.company)
+            WHERE j.rowid = ?
+            """,
+            (rowid,),
+        ).fetchone()
     finally:
         conn.close()
     if r is None:
         return None
     return {k: r[k] for k in r.keys()}
-
 
 def make_handler(path: str):
     class Handler(BaseHTTPRequestHandler):

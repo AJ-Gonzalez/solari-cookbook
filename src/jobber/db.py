@@ -42,7 +42,16 @@ CREATE TABLE IF NOT EXISTS answers (
     kind       TEXT,
     updated_at TEXT NOT NULL
 );
-"""
+
+CREATE TABLE IF NOT EXISTS reputation (
+    company    TEXT PRIMARY KEY,
+    rating     REAL,
+    reviews    INTEGER,
+    signals    TEXT,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    checked_at TEXT
+);
+ """
 
 
 def _migrate(conn: sqlite3.Connection) -> None:

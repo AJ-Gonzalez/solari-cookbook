@@ -170,6 +170,16 @@ def cmd_dashboard(args: argparse.Namespace) -> None:
     serve(args.port, args.db)
 
 
+def cmd_repqueue(args: argparse.Namespace) -> None:
+    from . import reputation
+    conn = db.connect(Path(args.db))
+    reputation.ensure_table(conn)
+    pending = reputation.pending_companies(conn)
+    print(f"{len(pending)} company(ies) to check")
+    done = reputation.run_queue(conn, sleep_s=args.sleep)
+    print(f"checked {done} companies")
+
+
 def main(argv: list[str] | None = None) -> None:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", default=str(db.DEFAULT_DB))
@@ -207,6 +217,12 @@ def main(argv: list[str] | None = None) -> None:
     o = sub.add_parser("open", parents=[common], help="open a job's posting URL in the browser")
     o.add_argument("id", type=int)
     o.set_defaults(func=cmd_open)
+
+    q = sub.add_parser("repqueue", parents=[common],
+                       help="run reputation checks for all unchecked companies")
+    q.add_argument("--sleep", type=int, default=8,
+                   help="seconds between companies (rate limiting)")
+    q.set_defaults(func=cmd_repqueue)
 
     d = sub.add_parser("dashboard", parents=[common], help="local web view of the queue")
     d.add_argument("--port", type=int, default=8799)
