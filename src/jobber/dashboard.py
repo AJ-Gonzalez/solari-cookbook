@@ -207,7 +207,7 @@ function render() {
     <tr class="job${r.rowid === selId ? " sel" : ""}" data-id="${r.rowid}"
         onclick="pick(${r.rowid})">
       <td class="id">${r.rowid}</td>
-      <td class="num">${ratioTxt(r)}</td>
+      <td class="num">${esc(r.band || "-")}</td>
       <td class="num">${esc(comp(r))}</td>
       <td>${r.rep_rating == null ? '<span class="dim">…</span>' :
           r.rep_rating.toFixed(1) + "★"}</td>
@@ -228,7 +228,7 @@ function showDetail(r) {
       <button class="copy" onclick="navigator.clipboard.writeText('${r.rowid}')">copy id</button>
       <span class="hint">↑↓ move · Enter opens the posting</span></h2>
     <div class="co">${esc(r.company)} · ${esc(r.source)}</div>
-    <div class="meta">ratio      ${r.ratio === null ? "-" : Math.round(r.ratio)}
+    <div class="meta">band      ${esc(r.band || "-")}   ratio ${r.ratio === null ? "-" : Math.round(r.ratio)}
 comp      ${esc(comp(r))} (${esc(r.comp_confidence)})
 location  ${esc(r.location)}
 eligible  ${r.location_eligible}   degree ${r.degree_flag}   qual ${r.qual_score}
@@ -237,7 +237,7 @@ url       <a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a>
 reputation ${r.rep_rating == null ? "not checked yet" :
    r.rep_rating.toFixed(1) + "★ (" + (r.rep_reviews ?? "?") + " reviews)"}
 ${r.rep_signals && r.rep_signals !== "[]" ?
-   "signals   " + JSON.parse(r.rep_signals).map(s => "· " + s).join("\n           ") : ""}</div>
+   "signals   " + JSON.parse(r.rep_signals).map(s => "· " + s).join(" | ") : ""}</div>
     <div class="desc">${esc(r.description)}</div>`;
 }
 async function pick(id) {
@@ -286,7 +286,35 @@ def _jobs_payload(path: str) -> list[dict]:
     fields = ("rowid", "ratio", "comp_min", "comp_max", "comp_currency",
               "comp_confidence", "location_eligible", "degree_flag", "status",
               "company", "title", "source", "rep_rating", "rep_reviews")
-    return [{f: r[f] for f in fields} for r in rows]
+    out = [{f: r[f] for f in fields} for r in rows]
+    _assign_bands(out)
+    return out
+
+
+def _assign_bands(rows: list[dict]) -> None:
+    """Quartile bands over positive-ratio listings: 'Top 25%' is the best
+    comp-per-requirement quarter of the queue. Unknown comp shows '—'."""
+    pos = sorted(r["ratio"] for r in rows if r["ratio"] and r["ratio"] > 0)
+    if not pos:
+        for r in rows:
+            r["band"] = "—"
+        return
+    n = len(pos)
+    cuts = [pos[int(n * k / 4)] for k in (1, 2, 3)]
+    bands = ("Bottom 25%", "50-75%", "25-50%", "Top 25%")
+    for r in rows:
+        v = r["ratio"]
+        if not v or v <= 0:
+            r["band"] = "—"
+            continue
+        if v <= cuts[0]:
+            r["band"] = bands[0]
+        elif v <= cuts[1]:
+            r["band"] = bands[1]
+        elif v <= cuts[2]:
+            r["band"] = bands[2]
+        else:
+            r["band"] = bands[3]
 
 
 def _job_payload(path: str, rowid: int) -> dict | None:
