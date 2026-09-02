@@ -113,9 +113,9 @@ _PAGE = """<!doctype html>
 <div id="wrap">
   <table>
     <thead><tr>
-      <th>id</th><th class="num">ratio</th><th class="num">comp usd</th>
+      <th>id</th><th class="num">band</th><th class="num">comp usd</th>
       <th>rep</th>
-      <th>elg</th><th>deg</th><th>st</th><th>company</th><th>title</th>
+      <th>elig</th><th>degree</th><th>status</th><th>company</th><th>title</th>
     </tr></thead>
     <tbody id="rows"></tbody>
   </table>
