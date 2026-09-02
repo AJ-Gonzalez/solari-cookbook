@@ -27,7 +27,7 @@ accept = [
   "global", "americas", "north america",
 ]
 reject = [
-  "united states", "usa", "u.s.", "us only", "usa only", "us-based", "canada", "united kingdom", "uk",
+  "united states", "usa", "u.s.", "us", "us only", "usa only", "us-based", "canada", "united kingdom", "uk",
   "europe", "emea", "eu", "apac", "asia", "australia", "new zealand",
   "japan", "singapore", "india", "philippines", "indonesia", "vietnam",
   "china", "africa", "middle east",

@@ -35,6 +35,12 @@ class Eligibility(unittest.TestCase):
     def test_empty_unknown(self):
         self.assertEqual(location_eligible("", C), "unknown")
 
+    def test_bare_us_region(self):
+        self.assertEqual(location_eligible("Remote - US | Austin | Boston", C), "no")
+
+    def test_us_substring_not_matched(self):
+        self.assertEqual(location_eligible("Remote — Consult GmbH", C), "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

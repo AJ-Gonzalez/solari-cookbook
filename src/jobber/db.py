@@ -84,3 +84,31 @@ def upsert_jobs(conn: sqlite3.Connection, rows: list[dict], now: str) -> None:
             {**r, "now": now},
         )
     conn.commit()
+
+
+VALID_STATUSES = ("new", "queued", "hidden", "staged", "applied", "rejected")
+
+
+def set_status(conn: sqlite3.Connection, rowid: int, status: str) -> bool:
+    if status not in VALID_STATUSES:
+        return False
+    cur = conn.execute("UPDATE jobs SET status=? WHERE rowid=?", (status, rowid))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def ranked_rows(
+    conn: sqlite3.Connection,
+    statuses: tuple[str, ...] = ("new", "queued"),
+    eligible_only: bool = True,
+):
+    sql = "SELECT rowid, * FROM jobs WHERE status IN (%s)" % ",".join("?" * len(statuses))
+    rows = conn.execute(sql, statuses).fetchall()
+    if eligible_only:
+        rows = [r for r in rows if r["location_eligible"] in ("yes", "unknown")]
+    # ratio DESC, unknown-comp last
+    return sorted(
+        rows,
+        key=lambda r: (r["ratio"] is not None, r["ratio"] or 0),
+        reverse=True,
+    )
