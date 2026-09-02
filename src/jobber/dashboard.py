@@ -5,6 +5,12 @@ chat ("apply to 1212"), not through dashboard buttons — the dashboard
 exists so the human can see ids and details side by side while talking.
 Auto-refreshes the queue so status changes made by the agent appear live.
 
+UX notes: the list is keyboard-driven (arrow keys walk rows, Enter opens
+the posting), the job description lives in a bottom panel, and sorting is
+ratio-first by default with comp asc/desc available. Comic Neue is loaded
+per the user's dyslexia-friendly-font preference; it falls back to system
+fonts offline.
+
 Each request opens its own SQLite connection: ThreadingHTTPServer serves
 requests on different threads and sqlite3 objects refuse cross-thread use.
 """
@@ -21,87 +27,118 @@ _PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <title>jobber queue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #101418; --panel: #171c22; --line: #262e37; --text: #d6dde4;
-    --dim: #7d8a96; --accent: #4da3ff; --yes: #3fb96f; --no: #d15b5b;
-    --unk: #b99a3f; --mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
+    --bg: #0d1117; --panel: #1a222b; --panel2: #202b36; --line: #42505e;
+    --text: #f2f6fa; --dim: #b3c2cf; --accent: #6cb6ff;
+    --yes: #4cd787; --no: #ff7b7b; --unk: #ffc857;
+    --mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
-         font: 14px/1.45 system-ui, sans-serif; display: flex; height: 100vh; }
-  #left { width: 62%; min-width: 560px; display: flex; flex-direction: column;
-          border-right: 1px solid var(--line); }
+         font: 15px/1.5 "Comic Neue", "Comic Sans MS", system-ui, sans-serif;
+         display: flex; flex-direction: column; height: 100vh; }
   #bar { padding: 10px 14px; border-bottom: 1px solid var(--line);
-         display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  #search { background: var(--panel); border: 1px solid var(--line);
+         display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+         background: var(--panel); }
+  #search { background: var(--panel2); border: 1px solid var(--line);
             color: var(--text); border-radius: 6px; padding: 6px 10px;
-            width: 200px; }
+            width: 200px; font: inherit; }
   .chip { cursor: pointer; border: 1px solid var(--line); border-radius: 999px;
-          padding: 3px 10px; color: var(--dim); user-select: none; font-size: 12px; }
-  .chip.on { border-color: var(--accent); color: var(--accent); }
-  #count { color: var(--dim); font-size: 12px; margin-left: auto; }
+          padding: 3px 11px; color: var(--dim); user-select: none; font-size: 13px; }
+  .chip.on { border-color: var(--accent); color: var(--accent);
+             background: #16283c; font-weight: 700; }
+  #sortbtn { border: 1px solid var(--accent); color: var(--accent); background: var(--panel2);
+             border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit;
+             font-weight: 700; }
+  #count { color: var(--dim); font-size: 13px; margin-left: auto; }
   #wrap { overflow-y: auto; flex: 1; }
   table { width: 100%; border-collapse: collapse; }
-  th { position: sticky; top: 0; background: var(--panel); color: var(--dim);
-       text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase;
-       letter-spacing: .05em; padding: 6px 10px; border-bottom: 1px solid var(--line); }
-  td { padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--text);
+       text-align: left; font-weight: 700; font-size: 12px; text-transform: uppercase;
+       letter-spacing: .06em; padding: 7px 12px; border-bottom: 2px solid var(--line); }
+  td { padding: 7px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
   tr.job { cursor: pointer; }
-  tr.job:hover { background: #1a2029; }
-  tr.sel { background: #1c2836 !important; }
+  tr.job:hover { background: #1e2a37; }
+  tr.sel { background: #24405e !important; outline: 2px solid var(--accent);
+           outline-offset: -2px; }
   .id { font-family: var(--mono); color: var(--accent); font-weight: 700; }
   .num { font-family: var(--mono); text-align: right; }
-  .yes { color: var(--yes); } .no { color: var(--no); } .unknown { color: var(--unk); }
-  .st-queued { color: var(--accent); } .st-applied { color: var(--yes); }
+  .yes { color: var(--yes); font-weight: 700; }
+  .no { color: var(--no); font-weight: 700; }
+  .unknown { color: var(--unk); }
+  .st-queued { color: var(--accent); font-weight: 700; }
+  .st-applied { color: var(--yes); font-weight: 700; }
   .st-hidden, .st-rejected { color: var(--dim); }
-  .st-staged { color: #c583ff; }
-  #right { flex: 1; overflow-y: auto; padding: 18px 22px; }
-  .placeholder { color: var(--dim); margin-top: 40vh; text-align: center; }
-  h2 { margin: 0 0 2px; }
-  .co { color: var(--dim); margin-bottom: 12px; }
-  .meta { font-family: var(--mono); font-size: 12.5px; background: var(--panel);
+  .st-staged { color: #d9a8ff; font-weight: 700; }
+  #bottom { height: 42%; border-top: 2px solid var(--line); background: var(--panel);
+            overflow-y: auto; padding: 16px 22px; }
+  .placeholder { color: var(--dim); margin-top: 8vh; text-align: center; }
+  h2 { margin: 0 0 2px; font-size: 20px; }
+  .co { color: var(--dim); margin-bottom: 10px; }
+  .meta { font-family: var(--mono); font-size: 13px; background: var(--panel2);
           border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
           margin: 10px 0; white-space: pre-wrap; }
-  .desc { white-space: pre-wrap; margin-top: 14px; }
+  .desc { white-space: pre-wrap; margin-top: 12px; max-width: 110ch; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  button { background: var(--panel); border: 1px solid var(--line); color: var(--accent);
-           border-radius: 6px; padding: 2px 10px; cursor: pointer; font-family: var(--mono); }
+  button.copy { background: var(--panel2); border: 1px solid var(--line);
+                color: var(--accent); border-radius: 6px; padding: 2px 10px;
+                cursor: pointer; font-family: var(--mono); }
+  .hint { color: var(--dim); font-size: 12.5px; margin-left: 6px; }
 </style>
 </head>
 <body>
-<div id="left">
-  <div id="bar">
-    <input id="search" placeholder="filter title / company">
-    <span class="chip on" data-st="new">new</span>
-    <span class="chip on" data-st="queued">queued</span>
-    <span class="chip" data-st="staged">staged</span>
-    <span class="chip" data-st="applied">applied</span>
-    <span class="chip" data-st="hidden">hidden</span>
-    <span class="chip" data-st="rejected">rejected</span>
-    <span class="chip on" data-elg="yes">mex ok</span>
-    <span class="chip on" data-elg="unknown">unknown</span>
-    <span class="chip" data-elg="no">ineligible</span>
-    <span id="count"></span>
-  </div>
-  <div id="wrap">
-    <table>
-      <thead><tr>
-        <th>id</th><th class="num">ratio</th><th class="num">comp usd</th>
-        <th>elg</th><th>deg</th><th>st</th><th>company</th><th>title</th>
-      </tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
+<div id="bar">
+  <input id="search" placeholder="filter title / company">
+  <button id="sortbtn" title="cycle sort order">sort: ratio ↓</button>
+  <span class="chip on" data-st="new">new</span>
+  <span class="chip on" data-st="queued">queued</span>
+  <span class="chip" data-st="staged">staged</span>
+  <span class="chip" data-st="applied">applied</span>
+  <span class="chip" data-st="hidden">hidden</span>
+  <span class="chip" data-st="rejected">rejected</span>
+  <span class="chip on" data-elg="yes">mex ok</span>
+  <span class="chip on" data-elg="unknown">unknown</span>
+  <span class="chip" data-elg="no">ineligible</span>
+  <span class="chip on" data-deg="none">no degree</span>
+  <span class="chip on" data-deg="unknown">deg ?</span>
+  <span class="chip on" data-deg="preferred">pref</span>
+  <span class="chip" data-deg="required">required</span>
+  <span id="count"></span>
 </div>
-<div id="right"><div class="placeholder">click a job to read it here</div></div>
+<div id="wrap">
+  <table>
+    <thead><tr>
+      <th>id</th><th class="num">ratio</th><th class="num">comp usd</th>
+      <th>elg</th><th>deg</th><th>st</th><th>company</th><th>title</th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+<div id="bottom"><div class="placeholder">click a job or use ↑↓ arrow keys to read it here</div></div>
 <script>
 let JOBS = [];
+let VIS = [];
+let LAST = null;
+let selId = null;
+let SORT = "ratio";
 const on = s => new Set(s);
 let sts = on(["new", "queued"]);
 let elgs = on(["yes", "unknown"]);
+let degs = on(["none", "unknown", "preferred"]);
 
+const SORTS = ["ratio", "comp-desc", "comp-asc"];
+const SORT_LABEL = { "ratio": "sort: ratio ↓", "comp-desc": "sort: comp ↓",
+                     "comp-asc": "sort: comp ↑" };
+document.getElementById("sortbtn").onclick = () => {
+  SORT = SORTS[(SORTS.indexOf(SORT) + 1) % SORTS.length];
+  document.getElementById("sortbtn").textContent = SORT_LABEL[SORT];
+  render();
+};
 document.querySelectorAll(".chip[data-st]").forEach(c => c.onclick = () => {
   const v = c.dataset.st;
   sts.has(v) ? sts.delete(v) : sts.add(v);
@@ -111,6 +148,12 @@ document.querySelectorAll(".chip[data-st]").forEach(c => c.onclick = () => {
 document.querySelectorAll(".chip[data-elg]").forEach(c => c.onclick = () => {
   const v = c.dataset.elg;
   elgs.has(v) ? elgs.delete(v) : elgs.add(v);
+  c.classList.toggle("on");
+  render();
+});
+document.querySelectorAll(".chip[data-deg]").forEach(c => c.onclick = () => {
+  const v = c.dataset.deg;
+  degs.has(v) ? degs.delete(v) : degs.add(v);
   c.classList.toggle("on");
   render();
 });
@@ -126,7 +169,28 @@ function comp(r) {
   if (r.comp_currency && r.comp_min) return r.comp_min + " " + r.comp_currency;
   return "?";
 }
-function ratio(r) { return r.ratio === null ? "-" : Math.round(r.ratio); }
+function compMid(r) {
+  // USD midpoints only; non-USD and unknown sort as missing (kept last).
+  if (r.comp_currency !== "USD" || !r.comp_min) return null;
+  return (r.comp_min + (r.comp_max || r.comp_min)) / 2;
+}
+function ratioTxt(r) { return r.ratio === null ? "-" : Math.round(r.ratio); }
+
+function sortRows(rows) {
+  if (SORT === "ratio")
+    rows.sort((a, b) => (b.ratio ?? -1) - (a.ratio ?? -1));
+  else {
+    const dir = SORT === "comp-desc" ? -1 : 1;
+    rows.sort((a, b) => {
+      const ma = compMid(a), mb = compMid(b);
+      if (ma === null && mb === null) return (b.ratio ?? -1) - (a.ratio ?? -1);
+      if (ma === null) return 1;
+      if (mb === null) return -1;
+      return dir * (ma - mb);
+    });
+  }
+  return rows;
+}
 
 async function load() {
   JOBS = await (await fetch("/api/jobs")).json();
@@ -134,14 +198,15 @@ async function load() {
 }
 function render() {
   const q = document.getElementById("search").value.toLowerCase();
-  const rows = JOBS.filter(r =>
-    sts.has(r.status) && elgs.has(r.location_eligible) &&
-    (!q || (r.title + " " + r.company).toLowerCase().includes(q)));
-  document.getElementById("count").textContent = rows.length + " shown";
-  document.getElementById("rows").innerHTML = rows.map(r => `
-    <tr class="job" data-id="${r.rowid}" onclick="pick(${r.rowid}, this)">
+  VIS = sortRows(JOBS.filter(r =>
+    sts.has(r.status) && elgs.has(r.location_eligible) && degs.has(r.degree_flag) &&
+    (!q || (r.title + " " + r.company).toLowerCase().includes(q))));
+  document.getElementById("count").textContent = VIS.length + " shown";
+  document.getElementById("rows").innerHTML = VIS.map(r => `
+    <tr class="job${r.rowid === selId ? " sel" : ""}" data-id="${r.rowid}"
+        onclick="pick(${r.rowid})">
       <td class="id">${r.rowid}</td>
-      <td class="num">${ratio(r)}</td>
+      <td class="num">${ratioTxt(r)}</td>
       <td class="num">${esc(comp(r))}</td>
       <td class="${r.location_eligible}">${r.location_eligible}</td>
       <td>${r.degree_flag}</td>
@@ -150,13 +215,16 @@ function render() {
       <td>${esc(r.title)}</td>
     </tr>`).join("");
 }
-async function pick(id, tr) {
+function showDetail(r) {
+  LAST = r;
+  selId = r.rowid;
   document.querySelectorAll("tr.sel").forEach(e => e.classList.remove("sel"));
-  tr.classList.add("sel");
-  const r = await (await fetch("/api/job/" + id)).json();
-  document.getElementById("right").innerHTML = `
+  const tr = document.querySelector(`tr[data-id="${r.rowid}"]`);
+  if (tr) { tr.classList.add("sel"); tr.scrollIntoView({ block: "nearest" }); }
+  document.getElementById("bottom").innerHTML = `
     <h2><span class="id">${r.rowid}</span> — ${esc(r.title)}
-      <button onclick="navigator.clipboard.writeText('${r.rowid}')">copy id</button></h2>
+      <button class="copy" onclick="navigator.clipboard.writeText('${r.rowid}')">copy id</button>
+      <span class="hint">↑↓ move · Enter opens the posting</span></h2>
     <div class="co">${esc(r.company)} · ${esc(r.source)}</div>
     <div class="meta">ratio      ${r.ratio === null ? "-" : Math.round(r.ratio)}
 comp      ${esc(comp(r))} (${esc(r.comp_confidence)})
@@ -166,6 +234,23 @@ status    ${r.status}
 url       <a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a></div>
     <div class="desc">${esc(r.description)}</div>`;
 }
+async function pick(id) {
+  const r = await (await fetch("/api/job/" + id)).json();
+  showDetail(r);
+}
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!VIS.length) return;
+    let i = VIS.findIndex(r => r.rowid === selId);
+    if (i === -1) i = 0;
+    else i = e.key === "ArrowDown" ? Math.min(i + 1, VIS.length - 1)
+                                   : Math.max(i - 1, 0);
+    pick(VIS[i].rowid);
+  } else if (e.key === "Enter" && LAST) {
+    window.open(LAST.url, "_blank");
+  }
+});
 load();
 setInterval(load, 20000);
 </script>
