@@ -1,0 +1,74 @@
+# Example personal-answers file. Copy to `answers.toml` (gitignored) and
+# fill in your real answers — never commit answers.toml.
+#
+# Keys are matched against form questions with normalization (case and
+# punctuation-insensitive) plus containment, so "sponsorship" answers any
+# question mentioning sponsorship.
+#
+# [toggles] drive the driver's behavior:
+#   no_sponsorship  — answers "No" to any sponsorship question
+#   no_relocation   — answers "No" to any relocation question
+#   no_clearance    — answers "No" to any clearance question
+#   decline_eeo     — EEO selects are declined automatically
+#
+# [resume] points at your PDF (gitignored); it is attached automatically.
+# avoid_public_sector-style harvesting filters live in criteria.toml
+# [filters] — see the comments there.
+
+[toggles]
+no_sponsorship = true
+no_relocation = true
+no_clearance = true
+decline_eeo = true
+
+[email]
+question = "email"
+answer = "you@example.com"
+
+[first_name]
+question = "first name"
+answer = ""
+
+[last_name]
+question = "last name"
+answer = ""
+
+[location]
+question = "location city"
+answer = "Your City, Country"
+
+[phone]
+question = "phone"
+answer = ""
+
+[website]
+question = "website"
+answer = ""
+
+[linkedin]
+question = "linkedin profile"
+answer = ""
+
+[resume]
+question = "resume"
+answer = "personal/resume.pdf"
+
+[country]
+question = "country"
+answer = ""
+
+[worked_before]
+question = "worked for"
+answer = "No"
+
+[years_experience]
+question = "years of relevant professional experience"
+answer = ""
+
+[industry_experience]
+question = "industry experience"
+answer = ""
+
+[summary]
+question = "tell us about yourself"
+answer = ""

@@ -89,3 +89,17 @@ New examples are welcome. Keep them small, make them run end-to-end against the
 real API, and put anything surprising in a comment right where it bites.
 
 MIT licensed.
+
+
+## Configuration & privacy
+
+Personal data lives in gitignored files only — nothing identifying is
+committed:
+
+- `answers.toml` — your answers bank (seed from `answers.example.toml`)
+- `personal/resume.pdf` — your resume, attached automatically
+- `criteria.toml` / `boards.toml` — shareable search criteria and board tokens
+- `jobber.sqlite3` — the local database
+
+If a personal file ever lands in a commit, purge it with
+`git filter-repo --path <file> --invert-paths` and force-push.
