@@ -57,6 +57,8 @@ def discover_fields(frame) -> list[FormField]:
                 if (el.tagName === 'SELECT') {
                     opts = [...el.options].map(o => o.textContent.trim());
                 }
+                if (el.classList.contains('iti__search-input') ||
+                    el.closest('.iti__dropdown-content')) return null;
                 return {
                     id: el.id || null, name: el.name || null,
                     type: el.type || el.tagName.toLowerCase(),
@@ -67,6 +69,8 @@ def discover_fields(frame) -> list[FormField]:
                     isSelect: !!el.closest('.select__control'),
                 };
             }""")
+        if info is None:
+            continue
         label = (info["label"] or info["aria"] or info["name"] or
                  info["id"] or "").strip()
         sel = f"#{info['id']}" if info["id"] else (
@@ -122,7 +126,7 @@ def fill_from_bank(frame, fields: list[FormField], bank: AnswersBank,
             if is_eeo:
                 # pick the least committal option (decline/no-answer)
                 loc.click(timeout=5000)
-                opts = frame.locator(".select__menu .select__option")
+                opts = frame.locator(".select__menu:visible .select__option")
                 target = next((i for i in range(opts.count())
                                if DECLINE_PAT.search(opts.nth(i).inner_text())),
                               None)
@@ -145,11 +149,11 @@ def fill_from_bank(frame, fields: list[FormField], bank: AnswersBank,
                 frame.page.wait_for_timeout(2500)
                 # suggestions expand the typed city ("Mexico City, Ciudad de
                 # México..."), so match on the typed prefix only
-                frame.locator(".select__menu .select__option",
+                frame.locator(".select__menu:visible .select__option",
                               has_text=answer.split(",")[0]).first.click(timeout=5000)
             elif f.kind == "select":
                 loc.click(timeout=5000)
-                frame.locator(".select__menu .select__option",
+                frame.locator(".select__menu:visible .select__option",
                               has_text=answer).first.click(timeout=5000)
             else:
                 loc.fill(answer, timeout=5000)
@@ -204,6 +208,11 @@ def walk_and_fill(page, app_frame, resume_path, bank: AnswersBank,
         print(f"page {pages_walked}: {len(visible)} fields ({log_fields}...)")
         print(f"  bank={from_bank} asked={asked}")
         attach_resume(app_frame, page, resume_path)
+        # remount race: the resume upload can re-render the form and reset
+        # selects — re-assert bank values (never re-asking the human)
+        page.wait_for_timeout(1500)
+        fill_from_bank(app_frame, discover_fields(app_frame), bank,
+                       lambda f: {})
 
         nxt = app_frame.locator(
             "#application-form button, #application-form input[type=button]"
