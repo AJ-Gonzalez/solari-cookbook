@@ -366,17 +366,34 @@ def drive_ashby(page, app, resume_path, bank: AnswersBank, ask_callback,
         except Exception as e:
             print(f"  ashby fill failed [{name or q[:30]}]: {str(e)[:50]}")
 
-    # Radio groups (fieldsets): question = first text line, options = rest.
+    # Radio groups (fieldsets): resolve question and options per-radio from
+    # the DOM (Ashby's text order is unreliable for line-based parsing).
     fieldsets = app.locator("fieldset")
     for i in range(fieldsets.count()):
         fs = fieldsets.nth(i)
-        if fs.locator("input[type=radio]").count() == 0:
+        radios = fs.locator("input[type=radio]")
+        if radios.count() == 0:
             continue
-        lines = [l.strip() for l in fs.inner_text().split("\n") if l.strip()]
-        if not lines:
+        opts = []
+        for j in range(radios.count()):
+            rad = radios.nth(j)
+            txt = rad.evaluate(
+                """el => {
+                    const c = el.closest('div[class*=option]') ||
+                              el.closest('label') ||
+                              el.parentElement.parentElement;
+                    return c ? c.innerText.trim().replace(/\\s+/g, ' ') : '';
+                }""")
+            if txt:
+                opts.append((txt, rad))
+        if not opts:
             continue
-        question = lines[0]
-        options = [l for l in lines[1:] if len(l) > 1]
+        question = fs.inner_text()
+        for txt, _ in opts:
+            question = question.replace(txt, " ")
+        question = re.sub(r"\s+", " ", question).strip().rstrip("*").strip()
+        if not question:
+            continue
         entry = bank.lookup(question)
         answer = entry.answer if entry else None
         if not answer and EEO_PAT.search(question):
@@ -392,37 +409,26 @@ def drive_ashby(page, app, resume_path, bank: AnswersBank, ask_callback,
             answer = entry.answer if entry else None
         if not answer:
             human = ask_callback([FormField(label=question, kind="radio",
-                                            options=options, locator_id="")])
+                                            options=[o[0] for o in opts],
+                                            locator_id="")])
             answer = human.get(question)
         if not answer:
             continue
         if answer == "DECLINE":
-            pick = next((o for o in options if DECLINE_PAT.search(o)), None)
+            match = next(((t, r) for t, r in opts if DECLINE_PAT.search(t)), None)
         else:
-            pick = next((o for o in options
-                         if o.lower() == answer.lower()
-                         or answer.lower() in o.lower()), None)
-        if pick is None:
-            # parsed options can miss decline variants; try the DOM anyway
-            fallback = fs.locator("label, [class*='option']",
-                                  has_text=answer[:12]).last
-            if fallback.count() == 0:
-                print(f"  ashby radio: no option for '{answer[:30]}' in "
-                      f"'{question[:40]}'")
-                continue
-            try:
-                fallback.click(timeout=5000)
-                print(f"  ashby radio (fallback): '{answer[:30]}' "
-                      f"({question[:40]})")
-            except Exception as e:
-                print(f"  ashby radio failed [{question[:40]}]: {str(e)[:50]}")
+            a = answer.lower()
+            match = next(((t, r) for t, r in opts
+                          if t.lower() == a or a in t.lower()), None)
+        if match is None:
+            print(f"  ashby radio: no option for '{answer[:30]}' in "
+                  f"'{question[:40]}'")
             continue
-        target = fs.locator("label, [class*='option']", has_text=pick).last
         try:
-            target.click(timeout=5000)
-            print(f"  ashby radio: '{pick[:30]}' ({question[:40]})")
+            match[1].check(force=True, timeout=5000)
+            print(f"  ashby radio: '{match[0][:30]}' ({question[:40]})")
         except Exception as e:
-            print(f"  ashby radio failed [{question[:40]}]: {str(e)[:50]}")
+            print(f"  ashby radio failed [{question[:40]}]: {str(e)[:60]}")
 
     # Resume: first required file input.
     files = app.locator("input[type=file]")
