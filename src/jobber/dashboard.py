@@ -15,12 +15,16 @@ Each request opens its own SQLite connection: ThreadingHTTPServer serves
 requests on different threads and sqlite3 objects refuse cross-thread use.
 """
 import json
+import os
 import re
+import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
 from . import db
+from .seniority import classify
 
 _PAGE = """<!doctype html>
 <html lang="en">
@@ -115,6 +119,7 @@ _PAGE = """<!doctype html>
     <thead><tr>
       <th>id</th><th class="num">band</th><th class="num">comp usd</th>
       <th>rep</th>
+      <th>level</th>
       <th>elig</th><th>degree</th><th>status</th><th>company</th><th>title</th>
     </tr></thead>
     <tbody id="rows"></tbody>
@@ -132,9 +137,11 @@ let sts = on(["new", "queued"]);
 let elgs = on(["yes", "unknown"]);
 let degs = on(["none", "unknown", "preferred"]);
 
-const SORTS = ["ratio", "comp-desc", "comp-asc"];
+const SORTS = ["ratio", "comp-desc", "comp-asc", "level-asc", "level-desc"];
 const SORT_LABEL = { "ratio": "sort: ratio ↓", "comp-desc": "sort: comp ↓",
-                     "comp-asc": "sort: comp ↑" };
+                     "comp-asc": "sort: comp ↑", "level-asc": "sort: level ↑",
+                     "level-desc": "sort: level ↓" };
+const LEVEL_RANK = { "junior": 0, "mid": 1, "senior": 2, "staff": 3, "c-suite": 4 };
 document.getElementById("sortbtn").onclick = () => {
   SORT = SORTS[(SORTS.indexOf(SORT) + 1) % SORTS.length];
   document.getElementById("sortbtn").textContent = SORT_LABEL[SORT];
@@ -180,7 +187,10 @@ function ratioTxt(r) { return r.ratio === null ? "-" : Math.round(r.ratio); }
 function sortRows(rows) {
   if (SORT === "ratio")
     rows.sort((a, b) => (b.ratio ?? -1) - (a.ratio ?? -1));
-  else {
+  else if (SORT.startsWith("level")) {
+    const dir = SORT === "level-asc" ? 1 : -1;
+    rows.sort((a, b) => dir * ((LEVEL_RANK[a.seniority] ?? 1) - (LEVEL_RANK[b.seniority] ?? 1)));
+  } else {
     const dir = SORT === "comp-desc" ? -1 : 1;
     rows.sort((a, b) => {
       const ma = compMid(a), mb = compMid(b);
@@ -211,6 +221,7 @@ function render() {
       <td class="num">${esc(comp(r))}</td>
       <td>${r.rep_rating == null ? '<span class="dim">…</span>' :
           r.rep_rating.toFixed(1) + "★"}</td>
+      <td>${r.seniority}</td>
       <td class="${r.location_eligible}">${r.location_eligible}</td>
       <td>${r.degree_flag}</td>
       <td class="st-${r.status}">${r.status}</td>
@@ -227,6 +238,7 @@ function showDetail(r) {
   document.getElementById("bottom").innerHTML = `
     <h2><span class="id">${r.rowid}</span> — ${esc(r.title)}
       <button class="copy" onclick="navigator.clipboard.writeText('${r.rowid}')">copy id</button>
+      <button class="copy" onclick="startApply(${r.rowid})">apply ▶</button>
       <span class="hint">↑↓ move · Enter opens the posting</span></h2>
     <div class="co">${esc(r.company)} · ${esc(r.source)}</div>
     <div class="meta">band      ${esc(r.band || "-")}   ratio ${r.ratio === null ? "-" : Math.round(r.ratio)}
@@ -240,6 +252,12 @@ reputation ${r.rep_rating == null ? "not checked yet" :
 ${r.rep_signals && r.rep_signals !== "[]" ?
    "signals   " + JSON.parse(r.rep_signals).map(s => "· " + s).join(" | ") : ""}</div>
     <div class="desc">${esc(r.description)}</div>`;
+}
+async function startApply(id) {
+  const hint = document.querySelector(".hint");
+  const r = await fetch("/api/apply/" + id, {method: "POST"});
+  const t = await r.text();
+  if (hint) hint.textContent = t;
 }
 async function pick(id) {
   const r = await (await fetch("/api/job/" + id)).json();
@@ -266,6 +284,8 @@ setInterval(load, 20000);
 """
 
 _JOB_ROUTE = re.compile(r"^/api/job/(\d+)$")
+_APPLY_ROUTE = re.compile(r"^/api/apply/(\d+)$")
+_apply_state = {"proc": None}
 
 
 def _jobs_payload(path: str) -> list[dict]:
@@ -288,6 +308,8 @@ def _jobs_payload(path: str) -> list[dict]:
               "comp_confidence", "location_eligible", "degree_flag", "status",
               "company", "title", "source", "rep_rating", "rep_reviews")
     out = [{f: r[f] for f in fields} for r in rows]
+    for r in out:
+        r["seniority"] = classify(r["title"])
     _assign_bands(out)
     return out
 
@@ -336,7 +358,9 @@ def _job_payload(path: str, rowid: int) -> dict | None:
         conn.close()
     if r is None:
         return None
-    return {k: r[k] for k in r.keys()}
+    out = {k: r[k] for k in r.keys()}
+    out["seniority"] = classify(out.get("title") or "")
+    return out
 
 def make_handler(path: str):
     class Handler(BaseHTTPRequestHandler):
@@ -362,6 +386,38 @@ def make_handler(path: str):
                     self._send(200, json.dumps(job).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
+
+        def do_POST(self) -> None:
+            route = urlparse(self.path).path
+            m = _APPLY_ROUTE.match(route)
+            if not m:
+                self._send(404, b"not found", "text/plain")
+                return
+            proc = _apply_state["proc"]
+            if proc is not None and proc.poll() is None:
+                self._send(409, b"an apply run is already active", "text/plain")
+                return
+            conn = db.connect(Path(path))
+            try:
+                row = conn.execute("SELECT url FROM jobs WHERE rowid=?",
+                                   (int(m.group(1)),)).fetchone()
+            finally:
+                conn.close()
+            if row is None:
+                self._send(404, b"no such job", "text/plain")
+                return
+            root = Path(__file__).resolve().parents[2]
+            py = root / ".venv" / "bin" / "python"
+            if not py.exists():
+                py = Path(sys.executable)
+            logf = open(f"/tmp/apply_live_{m.group(1)}.log", "w")
+            _apply_state["proc"] = subprocess.Popen(
+                [str(py), str(root / "scripts" / "apply_live.py"),
+                 row["url"]],
+                cwd=str(root), stdout=logf, stderr=subprocess.STDOUT,
+                env=os.environ.copy())
+            self._send(200, f"apply run started (pid {_apply_state['proc'].pid}); "
+                         f"browser window opening".encode(), "text/plain")
 
         def log_message(self, *args) -> None:
             pass  # keep the service log clean; nothing here needs auditing
