@@ -17,3 +17,15 @@ enabled = true
 
 # [workable]
 # tokens = []  # apply.workable.com subdomains — discovery pending
+
+[remotive]
+enabled = true
+
+[jobicy]
+enabled = true
+
+[arbeitnow]
+enabled = true
+
+[himalayas]
+enabled = true
