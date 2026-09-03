@@ -238,6 +238,7 @@ function showDetail(r) {
   document.getElementById("bottom").innerHTML = `
     <h2><span class="id">${r.rowid}</span> — ${esc(r.title)}
       <button class="copy" onclick="navigator.clipboard.writeText('${r.rowid}')">copy id</button>
+      <button class="copy" onclick="showSimilar(${r.rowid})">similar ⇄</button>
       <button class="copy" onclick="startApply(${r.rowid})">apply ▶</button>
       <span class="hint">↑↓ move · Enter opens the posting</span></h2>
     <div class="co">${esc(r.company)} · ${esc(r.source)}</div>
@@ -252,6 +253,30 @@ reputation ${r.rep_rating == null ? "not checked yet" :
 ${r.rep_signals && r.rep_signals !== "[]" ?
    "signals   " + JSON.parse(r.rep_signals).map(s => "· " + s).join(" | ") : ""}</div>
     <div class="desc">${esc(r.description)}</div>`;
+}
+async function showSimilar(id) {
+  const hits = await (await fetch("/api/similar/" + id)).json();
+  const rows = hits.length ? hits.map(r => `
+      <tr class="job" onclick="pick(${r.rowid})">
+        <td class="num">${r.score.toFixed(3)}</td>
+        <td class="id">${r.rowid}</td>
+        <td class="num">${esc(comp(r))}</td>
+        <td class="${r.location_eligible}">${r.location_eligible}</td>
+        <td class="st-${r.status}">${r.status}</td>
+        <td>${esc(r.company)}</td>
+        <td>${esc(r.title)}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="7"><span class="hint">no similar roles found</span></td></tr>`;
+  document.getElementById("bottom").innerHTML = `
+    <h2><span class="id">${id}</span> — similar roles
+      <button class="copy" onclick="pick(${id})">← back to job</button>
+      <span class="hint">score = text similarity · click a row to read it</span></h2>
+    <table><thead><tr>
+      <th>score</th><th>id</th><th class="num">comp usd</th>
+      <th>elig</th><th>status</th><th>company</th><th>title</th>
+    </tr></thead><tbody>
+    ${rows}
+    </tbody></table>`;
 }
 async function startApply(id) {
   const hint = document.querySelector(".hint");
@@ -284,6 +309,7 @@ setInterval(load, 20000);
 """
 
 _JOB_ROUTE = re.compile(r"^/api/job/(\d+)$")
+_SIMILAR_ROUTE = re.compile(r"^/api/similar/(\d+)$")
 _APPLY_ROUTE = re.compile(r"^/api/apply/(\d+)$")
 _apply_state = {"proc": None}
 
@@ -384,6 +410,14 @@ def make_handler(path: str):
                     self._send(404, b"{}", "application/json")
                 else:
                     self._send(200, json.dumps(job).encode(), "application/json")
+            elif m := _SIMILAR_ROUTE.match(route):
+                from .similar import find_similar
+                conn = db.connect(Path(path))
+                try:
+                    hits = find_similar(conn, int(m.group(1)))
+                finally:
+                    conn.close()
+                self._send(200, json.dumps(hits).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
 

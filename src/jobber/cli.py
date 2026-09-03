@@ -1,4 +1,5 @@
-"""Command line interface: harvest, show, mark, scan, view, open, dashboard."""
+"""Command line interface: harvest, show, mark, scan, view, open,
+similar, dashboard."""
 import argparse
 import json
 import re
@@ -184,6 +185,22 @@ def cmd_open(args: argparse.Namespace) -> None:
     print(f"opened [{r['rowid']}] {r['title']} — {r['url']}")
 
 
+def cmd_similar(args: argparse.Namespace) -> None:
+    from .similar import find_similar  # deferred: tokenization costs ~1s
+    conn = db.connect(Path(args.db))
+    try:
+        results = find_similar(conn, args.id, args.top)
+    finally:
+        conn.close()
+    if not results:
+        sys.exit(f"no similar roles found for id {args.id}")
+    print(f"roles similar to [{args.id}]:")
+    for r in results:
+        comp = (f"{r['comp_min']}-{r['comp_max']} {r['comp_currency']}"
+                if r["comp_min"] else "?")
+        print(f"  {r['score']:.3f}  [{r['rowid']}] {r['company']}"
+              f"  {r['title'][:44]}  {comp:<14} {r['url']}")
+
 def cmd_dashboard(args: argparse.Namespace) -> None:
     from .dashboard import serve  # deferred: keeps CLI startup free of server imports
     serve(args.port, args.db)
@@ -307,6 +324,12 @@ def main(argv: list[str] | None = None) -> None:
     d = sub.add_parser("dashboard", parents=[common], help="local web view of the queue")
     d.add_argument("--port", type=int, default=8799)
     d.set_defaults(func=cmd_dashboard)
+
+    sim = sub.add_parser("similar", parents=[common],
+                         help="find roles textually similar to a given job id")
+    sim.add_argument("id", type=int)
+    sim.add_argument("--top", type=int, default=15)
+    sim.set_defaults(func=cmd_similar)
 
     a = sub.add_parser("addtoken", help="verify an ATS token from an apply URL and add it to boards.toml")
     a.add_argument("platform", choices=["workable", "smartrecruiters"])
