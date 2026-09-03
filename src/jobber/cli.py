@@ -11,7 +11,8 @@ from pathlib import Path
 from . import db, gates, rank
 from .criteria import load_boards, load_criteria
 from .sources import (arbeitnow, ashby, greenhouse, himalayas, jobicy,
-                      lever, remotive, remoteok, smartrecruiters, workable)
+                      lever, remotive, remoteok, smartrecruiters, themuse,
+                      workable, wwr)
 
 SOURCES = {
     "greenhouse": greenhouse,
@@ -22,12 +23,15 @@ SOURCES = {
     "jobicy": jobicy,
     "arbeitnow": arbeitnow,
     "himalayas": himalayas,
+    "themuse": themuse,
+    "wwr": wwr,
     "workable": workable,
     "smartrecruiters": smartrecruiters,
 }
 # Aggregator boards with one global feed: enabled flag in boards.toml,
 # no per-company tokens.
-TOKENLESS = {"remoteok", "remotive", "jobicy", "arbeitnow", "himalayas"}
+TOKENLESS = {"remoteok", "remotive", "jobicy", "arbeitnow", "himalayas",
+             "themuse", "wwr"}
 
 
 def cmd_harvest(args: argparse.Namespace) -> None:

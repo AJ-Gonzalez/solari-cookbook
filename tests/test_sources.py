@@ -1,10 +1,12 @@
 """Tests for source parsers, run against inline fixtures (no network)."""
 import unittest
+import xml.etree.ElementTree as ET
 
 from src.jobber.criteria import load_criteria
 from src.jobber.rank import enrich
 from src.jobber.sources import (arbeitnow, ashby, greenhouse, himalayas,
-                                jobicy, lever, remoteok, remotive)
+                                jobicy, lever, remoteok, remotive, themuse,
+                                wwr)
 
 C = load_criteria()
 
@@ -212,6 +214,65 @@ class Himalayas(unittest.TestCase):
         self.assertEqual(rows[0]["location"], "United Kingdom")
         self.assertIsNone(rows[1]["comp_min"])
         self.assertEqual(rows[1]["comp_confidence"], "unknown")
+
+class TheMuse(unittest.TestCase):
+    def test_parse(self):
+        raw = [{
+            "id": 18054997,
+            "name": "Senior Backend Engineer",
+            "contents": "<p>Great role.</p><p>Salary: $140,000 - $180,000.</p>",
+            "locations": [{"name": "Seattle, WA"}, {"name": "Remote"}],
+            "refs": {"landing_page":
+                     "https://www.themuse.com/jobs/cleanharbors/x-ff84b8"},
+            "company": {"id": 15000557, "short_name": "cleanharbors",
+                        "name": "Clean Harbors"},
+        }, {"model_type": "junk"}]
+        rows = _score(themuse.parse(raw))
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual(r["source_job_id"], "18054997")
+        self.assertEqual(r["company"], "Clean Harbors")
+        self.assertEqual(r["comp_min"], 140000)
+        self.assertEqual(r["comp_max"], 180000)
+        self.assertEqual(r["location"], "Seattle, WA; Remote")
+        self.assertEqual(r["url"],
+                         "https://www.themuse.com/jobs/cleanharbors/x-ff84b8")
+
+
+class WWR(unittest.TestCase):
+    @staticmethod
+    def _item(title, region, description, link):
+        item = ET.Element("item")
+        for tag, value in [("title", title), ("region", region),
+                           ("description", description), ("link", link)]:
+            ET.SubElement(item, tag).text = value
+        return item
+
+    def test_parse_company_title_split(self):
+        raw = [self._item(
+            "Proxify AB: Senior Ruby Developer",
+            "Anywhere in the World",
+            '<p><strong>URL:</strong> '
+            '<a href="http://career.proxify.io">http://career.proxify.io'
+            '</a></p><p>Salary: $90,000 - $120,000.</p>',
+            "https://weworkremotely.com/remote-jobs/proxify-senior-ruby")]
+        rows = wwr.parse(raw)
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual(r["company"], "Proxify AB")
+        self.assertEqual(r["title"], "Senior Ruby Developer")
+        self.assertEqual(r["source_job_id"], "proxify-senior-ruby")
+        self.assertEqual(r["workplace"], "Remote")
+        self.assertTrue(r["description"].startswith(
+            "Company site: http://career.proxify.io"))
+        self.assertEqual(r["comp_min"], 90000)
+
+    def test_no_colon_falls_back_to_full_title(self):
+        raw = [self._item("Just A Title", "USA", "<p>text</p>",
+                          "https://weworkremotely.com/remote-jobs/x")]
+        r = wwr.parse(raw)[0]
+        self.assertEqual(r["company"], "")
+        self.assertEqual(r["title"], "Just A Title")
 
 
 if __name__ == "__main__":
