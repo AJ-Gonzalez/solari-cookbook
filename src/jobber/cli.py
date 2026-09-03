@@ -203,6 +203,24 @@ def cmd_similar(args: argparse.Namespace) -> None:
     finally:
         conn.close()
 
+def cmd_batch_apply(args: argparse.Namespace) -> None:
+    import tomllib
+    from .answers import AnswersBank, seed_from_file
+    from .batch import Cohort, run_batch
+    conn = db.connect(Path(args.db))
+    bank = AnswersBank(conn)
+    seed_from_file(bank, "answers.toml")
+    resume = Path("personal/resume.pdf")
+    if not resume.exists():
+        sys.exit("no resume at personal/resume.pdf — batch apply attaches it")
+    toggles = tomllib.load(open("answers.toml", "rb")).get("toggles", {})
+    cohort = Cohort(seniority=args.seniority, query=args.query,
+                    limit=args.limit)
+    summary = run_batch(conn, cohort, bank, resume,
+                        auto_submit=bool(toggles.get("auto_submit")))
+    print(f"\nbatch done: {summary}")
+
+
 def cmd_dashboard(args: argparse.Namespace) -> None:
     from .dashboard import serve  # deferred: keeps CLI startup free of server imports
     serve(args.port, args.db)
@@ -217,6 +235,51 @@ def cmd_repqueue(args: argparse.Namespace) -> None:
     done = reputation.run_queue(conn, sleep_s=args.sleep)
     print(f"checked {done} companies")
 
+
+def cmd_companyinfo(args: argparse.Namespace) -> None:
+    from . import companies
+    conn = db.connect(Path(args.db))
+    try:
+        done = companies.enrich_missing(conn, limit=args.limit)
+        total = conn.execute(
+            "SELECT COUNT(*) c FROM companies WHERE summary IS NOT NULL"
+        ).fetchone()["c"]
+        print(f"enriched {done} new; {total} companies with summaries")
+    finally:
+        conn.close()
+
+
+def cmd_screening(args: argparse.Namespace) -> None:
+    from .gates import screening_signals
+    conn = db.connect(Path(args.db))
+    try:
+        rows = conn.execute(
+            """
+            SELECT rowid, company, title, source, description, gate_flags
+            FROM jobs
+            WHERE status IN ('new','queued','staged','needs_human')
+              AND hard_block = 0
+            """).fetchall()
+        by_source: dict = {}
+        flagged = []
+        for r in rows:
+            text = (r["description"] or "") + " " + (r["gate_flags"] or "")
+            signals = screening_signals(text)
+            if signals:
+                flagged.append((r["rowid"], r["company"], r["title"], signals))
+                by_source[r["source"]] = by_source.get(r["source"], 0) + 1
+        total = len(rows)
+        print(f"{len(flagged)} of {total} queue listings show "
+              "automated-screening markers:\n")
+        print("by ATS source:")
+        for src, n in sorted(by_source.items(), key=lambda x: -x[1]):
+            print(f"  {src:<14} {n}")
+        print("\nflagged listings (top 20):")
+        for rowid, company, title, signals in flagged[:20]:
+            print(f"  [{rowid}] {company[:22]:<22} {title[:38]:<38} "
+                  f"{', '.join(signals)}")
+    finally:
+        conn.close()
 
 
 def _extract_token(platform: str, raw: str) -> str:
@@ -323,9 +386,30 @@ def main(argv: list[str] | None = None) -> None:
                    help="seconds between companies (rate limiting)")
     q.set_defaults(func=cmd_repqueue)
 
+    ci = sub.add_parser("companyinfo", parents=[common],
+                        help="enrich company descriptions from Wikipedia")
+    ci.add_argument("--limit", type=int, default=50,
+                    help="max companies to look up this run")
+    ci.set_defaults(func=cmd_companyinfo)
+
+    scr = sub.add_parser("screening", parents=[common],
+                         help="report automated-screening markers in the queue")
+    scr.set_defaults(func=cmd_screening)
+
     d = sub.add_parser("dashboard", parents=[common], help="local web view of the queue")
     d.add_argument("--port", type=int, default=8799)
     d.set_defaults(func=cmd_dashboard)
+
+    b = sub.add_parser("batch-apply", parents=[common],
+                       help="fill a cohort of applications sequentially, "
+                            "never blocking on human input")
+    b.add_argument("--seniority", choices=["junior", "mid", "senior", "staff",
+                                           "c-suite"], default=None)
+    b.add_argument("--query", default=None,
+                   help="substring filter on title/company, e.g. 'backend'")
+    b.add_argument("--limit", type=int, default=10,
+                   help="max jobs in the cohort (best-ratio first)")
+    b.set_defaults(func=cmd_batch_apply)
 
     sim = sub.add_parser("similar", parents=[common],
                          help="find roles textually similar to a given job id")

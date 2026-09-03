@@ -82,6 +82,33 @@ def is_hard_block(gates: dict[str, list[str]]) -> bool:
     return bool(set(gates) & {"residency", "relocation", "work_auth", "sponsorship"})
 
 
+# Signals that a listing's pipeline screens resumes with automation.
+# No public registry exists for this; these are the observable markers
+# (named tools, one-way video interviews, assessments) in the listing's
+# own text. Absence is weak evidence either way.
+SCREENING_PATTERNS: dict[str, str] = {
+    "hirevue": r"hirevue",
+    "one-way video": r"one[- ]way (video|interview)|recorded (video|interview)",
+    "video interview": r"video interview|virtual interview",
+    "assessment": r"assessment|worksample|work sample|codility|hackerrank|"
+                  r"codesignal|karat",
+    "personality/psychometric": r"personality|psychometric|disc assessment|"
+                                r"caliper|pymetrics",
+    "ai screening": r"\bai[- ](screen|screening|resume|recruit)|"
+                    r"automated (screen|screening|review|evaluation)|"
+                    r"\bats\b (screen|filter)|applicant tracking",
+    "game-based": r"game[- ]based|cognify|brainable",
+}
+
+_SCREENING_COMPILED = {k: re.compile(v, re.I)
+                       for k, v in SCREENING_PATTERNS.items()}
+
+
+def screening_signals(text: str) -> list[str]:
+    """Categories of automated-screening markers found in listing text."""
+    t = text or ""
+    return [k for k, pat in _SCREENING_COMPILED.items() if pat.search(t)]
+
 def extract_questions(html: str) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()

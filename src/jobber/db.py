@@ -43,6 +43,21 @@ CREATE TABLE IF NOT EXISTS answers (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS apply_runs (
+    job_rowid  INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    outcome    TEXT NOT NULL,  -- submitted|staged|needs_human|no_form|error
+    gaps       TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_apply_runs_job ON apply_runs(job_rowid);
+
+CREATE TABLE IF NOT EXISTS companies (
+    name       TEXT PRIMARY KEY,          -- lowercased job company name
+    summary    TEXT,                      -- what the company does
+    source_url TEXT,
+    source     TEXT NOT NULL DEFAULT 'wikipedia',
+    checked_at TEXT
+);
 CREATE TABLE IF NOT EXISTS reputation (
     company    TEXT PRIMARY KEY,
     rating     REAL,
@@ -108,8 +123,9 @@ def upsert_jobs(conn: sqlite3.Connection, rows: list[dict], now: str) -> None:
     conn.commit()
 
 
-VALID_STATUSES = ("new", "queued", "hidden", "staged", "applied", "rejected")
 
+VALID_STATUSES = ("new", "queued", "hidden", "staged", "needs_human",
+                  "applied", "rejected")
 
 def set_status(conn: sqlite3.Connection, rowid: int, status: str) -> bool:
     if status not in VALID_STATUSES:

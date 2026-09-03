@@ -84,10 +84,10 @@ _PAGE = """<!doctype html>
   h2 { margin: 0 0 2px; font-size: 20px; }
   .co { color: var(--dim); margin-bottom: 10px; }
   .meta { font-family: var(--mono); font-size: 13px; background: var(--panel2);
-          border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
           margin: 10px 0; white-space: pre-wrap; }
   .desc { white-space: pre-wrap; margin-top: 12px; max-width: 110ch; }
   a { color: var(--accent); text-decoration: none; }
+  .st-needs_human { color: var(--unk); font-weight: 700; }
   a:hover { text-decoration: underline; }
   button.copy { background: var(--panel2); border: 1px solid var(--line);
                 color: var(--accent); border-radius: 6px; padding: 2px 10px;
@@ -102,6 +102,7 @@ _PAGE = """<!doctype html>
   <span class="chip on" data-st="new">new</span>
   <span class="chip on" data-st="queued">queued</span>
   <span class="chip" data-st="staged">staged</span>
+  <span class="chip" data-st="needs_human">needs human</span>
   <span class="chip" data-st="applied">applied</span>
   <span class="chip" data-st="hidden">hidden</span>
   <span class="chip" data-st="rejected">rejected</span>
@@ -241,12 +242,13 @@ function showDetail(r) {
       <button class="copy" onclick="showSimilar(${r.rowid})">similar ⇄</button>
       <button class="copy" onclick="startApply(${r.rowid})">apply ▶</button>
       <span class="hint">↑↓ move · Enter opens the posting</span></h2>
-    <div class="co">${esc(r.company)} · ${esc(r.source)}</div>
+    <div class="co">${esc(r.company)} · ${esc(r.source)}${r.company_summary ? " · " + esc(r.company_summary) : ""}</div>
     <div class="meta">band      ${esc(r.band || "-")}   ratio ${r.ratio === null ? "-" : Math.round(r.ratio)}
 comp      ${esc(comp(r))} (${esc(r.comp_confidence)})
 location  ${esc(r.location)}
 eligible  ${r.location_eligible}   degree ${r.degree_flag}   qual ${r.qual_score}
 status    ${r.status}
+screening ${r.screening && r.screening.length ? r.screening.join(", ") : "none visible in listing"}
 url       <a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a>
 reputation ${r.rep_rating == null ? "not checked yet" :
    r.rep_rating.toFixed(1) + "★ (" + (r.rep_reviews ?? "?") + " reviews)"}
@@ -314,6 +316,15 @@ _APPLY_ROUTE = re.compile(r"^/api/apply/(\d+)$")
 _apply_state = {"proc": None}
 
 
+def _extras(conn, out: dict) -> None:
+    """Company summary + screening signals, joined at detail time."""
+    from .companies import get_summary
+    from .gates import screening_signals
+    out["company_summary"] = get_summary(conn, out.get("company") or "")
+    out["screening"] = screening_signals(
+        (out.get("description") or "") + " " + (out.get("gate_flags") or ""))
+
+
 def _jobs_payload(path: str) -> list[dict]:
     conn = db.connect(Path(path))
     try:
@@ -326,7 +337,7 @@ def _jobs_payload(path: str) -> list[dict]:
             FROM jobs j
             LEFT JOIN reputation r ON r.company = lower(j.company)
             WHERE j.status IN
-                  ('new','queued','staged','hidden','applied','rejected')
+                  ('new','queued','staged','needs_human','hidden','applied','rejected')
             """).fetchall()
     finally:
         conn.close()
@@ -380,12 +391,14 @@ def _job_payload(path: str, rowid: int) -> dict | None:
             """,
             (rowid,),
         ).fetchone()
+        if r is not None:
+            out = {k: r[k] for k in r.keys()}
+            out["seniority"] = classify(out.get("title") or "")
+            _extras(conn, out)
+        else:
+            out = None
     finally:
         conn.close()
-    if r is None:
-        return None
-    out = {k: r[k] for k in r.keys()}
-    out["seniority"] = classify(out.get("title") or "")
     return out
 
 def make_handler(path: str):

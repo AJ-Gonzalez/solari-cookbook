@@ -95,6 +95,37 @@ def discover_fields(frame) -> list[FormField]:
     return fields
 
 
+def _select_filled(loc) -> bool:
+    """Read a react-select's value via its CONTROL (the selected-value div
+    is a sibling of the input, never a descendant — scoping to the input
+    always reads empty)."""
+    control = loc.locator(
+        "xpath=ancestor::div[contains(@class,'select__control')][1]")
+    if control.count() == 0:
+        return bool((loc.input_value(timeout=2000) or "").strip())
+    text = control.inner_text(timeout=2000).strip()
+    return bool(text) and text.lower() not in ("select...", "select")
+
+
+def empty_required(app_frame) -> list:
+    """Required fields still empty after the fill — the human's to-do."""
+    out = []
+    for f in discover_fields(app_frame):
+        if not f.required or f.kind == "file":
+            continue
+        loc = app_frame.locator(f.locator_id).first
+        try:
+            if f.kind == "select":
+                if not _select_filled(loc):
+                    out.append(f)
+                continue
+            val = (loc.input_value(timeout=2000) or "").strip()
+        except Exception:
+            continue
+        if not val:
+            out.append(f)
+    return out
+
 def fill_from_bank(frame, fields: list[FormField], bank: AnswersBank,
                    ask_callback) -> tuple[int, int]:
     """Fill fields from the bank; ask_callback for the unknowns.

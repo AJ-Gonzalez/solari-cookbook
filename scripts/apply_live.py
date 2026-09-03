@@ -3,7 +3,8 @@
 
 Flow:
 1. Opens the posting's application form in a visible Chromium window.
-2. Fills every field the answers bank knows.
+2. Fills every field the answers bank knows (shared fill flow, which
+   batch mode also uses).
 3. Lists the gaps — the human types those directly into the form.
 4. Waits (polling) until all required fields are filled.
 5. The human clicks Submit. The runner detects the confirmation and
@@ -22,44 +23,12 @@ from playwright.sync_api import sync_playwright
 
 from src.jobber import db
 from src.jobber.answers import AnswersBank, seed_from_file
-from src.jobber.driver import discover_fields, open_application, walk_and_fill
-
-CONFIRM_PAT = ("thank you", "submitted", "application received")
+from src.jobber.apply_flow import CONFIRM_PAT, fill_job
+from src.jobber.driver import discover_fields, empty_required
 
 
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
-
-
-def _select_filled(loc) -> bool:
-    """Read a react-select's value via its CONTROL (the selected-value div
-    is a sibling of the input, never a descendant — scoping to the input
-    always reads empty)."""
-    control = loc.locator(
-        "xpath=ancestor::div[contains(@class,'select__control')][1]")
-    if control.count() == 0:
-        return bool((loc.input_value(timeout=2000) or "").strip())
-    text = control.inner_text(timeout=2000).strip()
-    return bool(text) and text.lower() not in ("select...", "select")
-
-
-def empty_required(app_frame) -> list:
-    out = []
-    for f in discover_fields(app_frame):
-        if not f.required or f.kind == "file":
-            continue
-        loc = app_frame.locator(f.locator_id).first
-        try:
-            if f.kind == "select":
-                if not _select_filled(loc):
-                    out.append(f)
-                continue
-            val = (loc.input_value(timeout=2000) or "").strip()
-        except Exception:
-            continue
-        if not val:
-            out.append(f)
-    return out
 
 
 def learn_typed(app_frame, bank, fields) -> int:
@@ -114,81 +83,34 @@ def main() -> int:
                 print(f"  - {f.label[:80]}")
             return {}
 
-        ashby = "ashbyhq.com" in page.url or "ashbyhq.com" in job_url
-        if ashby:
-            log("ashby form detected")
-            from src.jobber.driver import drive_ashby
-            for attempt in (1, 2, 3):
-                try:
-                    page.goto(job_url, wait_until="domcontentloaded",
-                              timeout=45000)
-                    break
-                except Exception as e:
-                    log(f"goto attempt {attempt} failed: {str(e)[:60]}")
-                    page.wait_for_timeout(3000)
-            page.wait_for_timeout(4000)
-            status = drive_ashby(page, page.main_frame, resume, bank, ask,
-                                 dry_run=False)
-            log(f"driver fill done: {status}")
-            if auto_submit and status == "ready":
-                submit = page.locator(
-                    "button", has_text="Submit Application").first
-                if submit.count() and not submit.is_disabled():
-                    log("AUTO-SUBMIT: clicking Submit")
-                    submit.click(timeout=15000)
-                else:
-                    log("AUTO-SUBMIT: submit missing/disabled — not sent")
-            # per-group ground truth: question + selected option text
-            fieldsets = page.locator("fieldset")
-            for i in range(fieldsets.count()):
-                fs = fieldsets.nth(i)
-                if fs.locator("input[type=radio]").count() == 0:
-                    continue
-                checked = fs.locator("input[type=radio]:checked")
-                n = checked.count()
-                if n:
-                    sel = checked.first.evaluate(
-                        "el => { const c = el.closest('div[class*=option]');"
-                        " return c ? c.innerText.trim() : '?'; }")
-                    log(f"radio group OK: '{sel[:60]}'")
-                else:
-                    log("radio group UNANSWERED")
-        else:
-            app, form = open_application(page, job_url)
-            if app is None:
-                log("no application form found")
-                return 1
-            status = walk_and_fill(page, app, resume, bank, ask, dry_run=False)
-            log(f"driver fill done: {status}")
-            page.screenshot(path="/tmp/live_state.png", full_page=True)
-            if auto_submit and status == "ready":
-                submit = app.locator(
-                    "button", has_text="Submit application").first
-                if submit.count() and not submit.is_disabled():
-                    log("AUTO-SUBMIT: clicking Submit")
-                    submit.click(timeout=15000)
-                else:
-                    log("AUTO-SUBMIT: submit missing/disabled — not sent")
+        result = fill_job(page, job_url, resume, bank,
+                          auto_submit=auto_submit, ask=ask)
+        log(f"fill outcome: {result.outcome}"
+            + (f" — {result.note}" if result.note else ""))
+        if result.outcome in ("no_form", "error"):
+            log(f"fill failed: {result.note or 'no application form found'}")
+            return 1
 
         # Gaps: the human fills them in the visible window; we poll.
         # (Ashby gap detection is not wired yet — fill leftovers by hand.)
-        gaps = [] if ashby else empty_required(app)
+        gaps = result.gaps if result.app is not None else []
         if gaps:
             print(f"\n=== {len(gaps)} required field(s) still empty — please "
                   "fill them in the browser window (no timeout; I'll wait) "
                   "===", flush=True)
-            for f in gaps:
-                print(f"  - {f.label[:80]}")
+            for label in gaps:
+                print(f"  - {label[:80]}")
             while True:
                 time.sleep(3)
                 try:
-                    gaps = [] if ashby else empty_required(app)
+                    gaps = [f.label for f in empty_required(result.app)]
                 except Exception:
                     log("window was closed by the user — exiting")
                     return 1
                 if not gaps:
                     break
-            learned = learn_typed(app, bank, discover_fields(app))
+            learned = learn_typed(result.app, bank,
+                                  discover_fields(result.app))
             log(f"learned {learned} human-typed answer(s) into the bank")
         else:
             log("all required fields covered by the bank")
@@ -215,7 +137,7 @@ def main() -> int:
             time.sleep(3)
         log(f"confirmed={confirmed}")
         if confirmed:
-            print("\n" + app.locator("body").inner_text()[:250], flush=True)
+            print("\n" + page.locator("body").inner_text()[:250], flush=True)
         page.wait_for_timeout(5000)
         browser.close()
         return 0 if confirmed else 2
