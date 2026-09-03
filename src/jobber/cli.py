@@ -7,13 +7,14 @@ from pathlib import Path
 
 from . import db, gates, rank
 from .criteria import load_boards, load_criteria
-from .sources import ashby, greenhouse, lever, remoteok
+from .sources import ashby, greenhouse, lever, remoteok, workable
 
 SOURCES = {
     "greenhouse": greenhouse,
     "lever": lever,
     "ashby": ashby,
     "remoteok": remoteok,
+    "workable": workable,
 }
 
 

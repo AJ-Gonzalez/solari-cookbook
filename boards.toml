@@ -14,3 +14,6 @@ tokens = ["ashby", "deepgram", "temporal", "replit", "sardine"]
 
 [remoteok]
 enabled = true
+
+# [workable]
+# tokens = []  # apply.workable.com subdomains — discovery pending
