@@ -157,13 +157,20 @@ def main() -> int:
         confirmed = False
         while True:
             try:
-                body = app.locator("body").inner_text().lower()
+                if page.is_closed():
+                    log("window closed by the user — exiting")
+                    return 1
+                body = ""
+                for frame in page.frames:
+                    try:
+                        body += frame.locator("body").inner_text().lower()
+                    except Exception:
+                        continue  # frames detach during SPA re-renders
                 if any(k in body for k in CONFIRM_PAT):
                     confirmed = True
                     break
-            except Exception:
-                log("window was closed by the user — exiting")
-                return 1
+            except Exception as e:
+                log(f"watch retry: {str(e)[:60]}")
             time.sleep(3)
         log(f"confirmed={confirmed}")
         if confirmed:
