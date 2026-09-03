@@ -5,8 +5,8 @@ import xml.etree.ElementTree as ET
 from src.jobber.criteria import load_criteria
 from src.jobber.rank import enrich
 from src.jobber.sources import (arbeitnow, ashby, greenhouse, himalayas,
-                                jobicy, lever, remoteok, remotive, themuse,
-                                wwr)
+                                hn_whoishiring, jobicy, lever, remoteok,
+                                remotive, themuse, workingnomads, wwr)
 
 C = load_criteria()
 
@@ -273,6 +273,56 @@ class WWR(unittest.TestCase):
         r = wwr.parse(raw)[0]
         self.assertEqual(r["company"], "")
         self.assertEqual(r["title"], "Just A Title")
+
+
+class WorkingNomads(unittest.TestCase):
+    def test_parse(self):
+        raw = [{
+            "id": 1826864,
+            "url": "https://www.workingnomads.com/job/go/1826864/",
+            "title": "Agentic Python Engineer",
+            "company_name": "Evaboot",
+            "description": "<p>REMOTE | Full-time | $70-120K USD</p>",
+            "location": "WORLDWIDE",
+            "category_name": "Development",
+        }]
+        rows = _score(workingnomads.parse(raw))
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual(r["source_job_id"], "1826864")
+        self.assertEqual(r["company"], "Evaboot")
+        self.assertEqual(r["comp_min"], 70000)
+        self.assertEqual(r["comp_max"], 120000)
+        self.assertEqual(r["workplace"], "Remote")
+
+
+class HNWhoIsHiring(unittest.TestCase):
+    def test_parse_pipe_convention(self):
+        raw = [{
+            "objectID": 41771000,
+            "comment_text":
+                "Acme Corp | Senior Backend Engineer | Remote (LATAM) | "
+                "$150-200k&lt;p&gt;We build things.&lt;/p&gt;",
+        }, {
+            "objectID": 41771001, "comment_text": None,
+        }, {
+            "objectID": 41771002,
+            "comment_text": "Onsite Robotics | Field Tech | Austin TX",
+        }]
+        rows = hn_whoishiring.parse(raw)
+        self.assertEqual(len(rows), 2)
+        r = rows[0]
+        self.assertEqual(r["company"], "Acme Corp")
+        self.assertEqual(r["title"], "Senior Backend Engineer")
+        self.assertEqual(r["location"], "Remote (LATAM), $150-200k")
+        self.assertEqual(r["comp_min"], 150000)
+        self.assertEqual(r["comp_max"], 200000)
+        self.assertEqual(r["workplace"], "Remote")
+        self.assertEqual(r["url"],
+                         "https://news.ycombinator.com/item?id=41771000")
+        self.assertEqual(rows[1]["workplace"], None)
+        self.assertEqual(rows[1]["company"], "Onsite Robotics")
+        self.assertEqual(rows[1]["title"], "Field Tech")
 
 
 if __name__ == "__main__":

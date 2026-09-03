@@ -17,6 +17,10 @@ class FromText(unittest.TestCase):
     def test_k_range(self):
         self.assertEqual(from_text("$60k - $90k"), (60000, 90000, "USD", "parsed"))
 
+    def test_k_range_single_suffix(self):
+        # "$70-120K": the k belongs to the whole range, not just the hi end.
+        self.assertEqual(from_text("$70-120K USD"), (70000, 120000, "USD", "parsed"))
+
     def test_eur_recorded_not_converted(self):
         self.assertEqual(
             from_text("€50,000–60,000"), (50000, 60000, "EUR", "parsed")

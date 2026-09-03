@@ -51,9 +51,13 @@ def from_text(text: str) -> tuple[int, int, str, str] | None:
     if not text:
         return None
     for m in _RANGE.finditer(text):
-        lo = _num(m.group("lo"), m.group("k1"))
+        # "$70-120K": one k-suffix on the range applies to both ends.
+        k1, k2 = m.group("k1"), m.group("k2")
+        if k2 and not k1:
+            k1 = k2
+        lo = _num(m.group("lo"), k1)
         hi_raw = m.group("hi")
-        hi = _num(hi_raw, m.group("k2")) if hi_raw else lo
+        hi = _num(hi_raw, k2) if hi_raw else lo
         if _valid(lo) and _valid(hi):
             if lo > hi:
                 lo, hi = hi, lo
