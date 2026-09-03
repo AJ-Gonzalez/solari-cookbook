@@ -47,4 +47,22 @@ reject = [
   "poland", "romania", "ukraine", "sweden", "norway", "denmark",
   "finland", "ireland", "switzerland", "austria", "belgium", "czech",
   "greece", "hungary",
+  # US states + DC + major metros (US-onsite must not pass as "unknown")
+  "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+  "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+  "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana",
+  "maine", "maryland", "massachusetts", "michigan", "minnesota",
+  "mississippi", "missouri", "montana", "nebraska", "nevada",
+  "new hampshire", "new jersey", "new mexico", "new york", "north carolina",
+  "north dakota", "ohio", "oklahoma", "oregon", "pennsylvania",
+  "rhode island", "south carolina", "south dakota", "tennessee", "texas",
+  "utah", "vermont", "virginia", "west virginia", "wisconsin", "wyoming",
+  "washington dc", "washington, dc", "puerto rico",
+  "new york city", "san francisco", "los angeles", "chicago", "seattle",
+  "boston", "austin", "denver", "atlanta", "dallas", "houston", "miami",
+  "philadelphia", "phoenix", "mountain view", "palo alto", "san jose",
+  # Canada (provinces + major metros)
+  "ontario", "quebec", "british columbia", "alberta", "manitoba",
+  "saskatchewan", "nova scotia", "toronto", "vancouver", "montreal",
+  "calgary", "ottawa",
 ]

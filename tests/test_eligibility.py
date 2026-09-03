@@ -44,3 +44,15 @@ class Eligibility(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class USCanada(unittest.TestCase):
+    def test_us_state_city(self):
+        self.assertEqual(location_eligible("San Francisco, California", C), "no")
+        self.assertEqual(location_eligible("McLean, Virginia", C), "no")
+
+    def test_canada(self):
+        self.assertEqual(location_eligible("Toronto", C), "no")
+        self.assertEqual(location_eligible("Remote, Ontario", C), "no")
+
+    def test_mexico_still_yes(self):
+        self.assertEqual(location_eligible("Remote, Mexico", C), "yes")
