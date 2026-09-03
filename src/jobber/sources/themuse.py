@@ -17,11 +17,22 @@ CATEGORY = "Software Engineering"
 MAX_PAGES = 40  # 20/page -> freshest ~800 listings
 
 
+def _page(page: int, attempts: int = 3) -> dict:
+    # 40 sequential requests: one transient read timeout must not kill
+    # the whole harvest, so each page retries before failing the source.
+    url = f"{LIST_URL}?page={page}&category={CATEGORY.replace(' ', '%20')}"
+    for attempt in range(1, attempts + 1):
+        try:
+            return http_json(url)
+        except Exception:
+            if attempt == attempts:
+                raise
+
+
 def fetch(token: str | None = None) -> list:
     out = []
     for page in range(1, MAX_PAGES + 1):
-        body = http_json(
-            f"{LIST_URL}?page={page}&category={CATEGORY.replace(' ', '%20')}")
+        body = _page(page)
         results = body.get("results") or []
         out.extend(results)
         if page >= body.get("page_count", 0) or not results:

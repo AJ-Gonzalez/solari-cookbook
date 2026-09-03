@@ -13,6 +13,7 @@ eligibility only reacts to explicit accept/reject tokens). On-site
 posts exist: workplace=Remote only when the text says so.
 """
 import re
+from urllib.parse import quote
 
 from ..comp import from_text
 from .base import http_json, make_row
@@ -24,8 +25,8 @@ _THREAD = re.compile(r"^Ask HN: Who is hiring\? \(")
 
 def fetch(token: str | None = None) -> list:
     hits = http_json(
-        f"{API}/search_by_date?query="
-        "\"Ask HN: Who is hiring?\"&tags=story&hitsPerPage=5"
+        f"{API}/search_by_date?query={quote('\"Ask HN: Who is hiring?\"')}"
+        "&tags=story&hitsPerPage=5"
     ).get("hits") or []
     story = next((h for h in hits
                   if _THREAD.match(h.get("title") or "")), None)
@@ -38,10 +39,10 @@ def fetch(token: str | None = None) -> list:
 def parse(raw: list, token: str | None = None) -> list[dict]:
     out = []
     for c in raw or []:
-        if not isinstance(c, dict) or not c.get("comment_text"):
+        if not isinstance(c, dict) or not (c.get("comment_text") or c.get("text")):
             continue
-        cid = str(c.get("objectID") or "")
-        text = strip_html(c["comment_text"])
+        cid = str(c.get("objectID") or c.get("id") or "")
+        text = strip_html(c.get("comment_text") or c.get("text") or "")
         first = (text.splitlines() or [""])[0].strip()
         segs = [s.strip() for s in first.split("|") if s.strip()]
         if len(segs) >= 2:
