@@ -1,13 +1,16 @@
 """Command line interface: harvest, show, mark, scan, view, open, dashboard."""
 import argparse
+import json
+import re
 import sys
+import urllib.request
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import db, gates, rank
 from .criteria import load_boards, load_criteria
-from .sources import ashby, greenhouse, lever, remoteok, workable
+from .sources import ashby, greenhouse, lever, remoteok, smartrecruiters, workable
 
 SOURCES = {
     "greenhouse": greenhouse,
@@ -15,6 +18,7 @@ SOURCES = {
     "ashby": ashby,
     "remoteok": remoteok,
     "workable": workable,
+    "smartrecruiters": smartrecruiters,
 }
 
 
@@ -181,6 +185,67 @@ def cmd_repqueue(args: argparse.Namespace) -> None:
     print(f"checked {done} companies")
 
 
+
+def _extract_token(platform: str, raw: str) -> str:
+    m = (re.search(r"workable\.com/([A-Za-z0-9_-]+)", raw)
+         if platform == "workable"
+         else re.search(r"smartrecruiters\.com/([A-Za-z0-9_-]+)", raw))
+    return (m.group(1) if m else raw.strip()).strip("/")
+
+
+def _probe_token(platform: str, token: str) -> int | None:
+    """Returns job count for a candidate token, None on error."""
+    try:
+        if platform == "workable":
+            body = json.dumps({}).encode()
+            req = urllib.request.Request(
+                f"https://apply.workable.com/api/v1/accounts/{token}/jobs",
+                data=body, method="POST",
+                headers={"Content-Type": "application/json",
+                         "User-Agent": "jobber/0.1"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return json.load(resp).get("total")
+        else:
+            req = urllib.request.Request(
+                f"https://api.smartrecruiters.com/v1/companies/{token}/postings",
+                headers={"User-Agent": "jobber/0.1"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return json.load(resp).get("totalFound")
+    except Exception:
+        return None
+
+
+def _append_token(path: Path, platform: str, token: str) -> None:
+    """Add token to boards.toml's [platform] section. Creates the section
+    if absent or commented out; updates the tokens list if present."""
+    text = path.read_text() if path.exists() else ""
+    pattern = re.compile(
+        rf"\n\[{platform}\]\ntokens = \[([^\]]*)\]")
+    m = pattern.search(text)
+    if m:
+        existing = [t.strip().strip('"') for t in m.group(1).split(",") if t.strip()]
+        if token not in existing:
+            existing.append(token)
+        text = pattern.sub(
+            f"\n[{platform}]\ntokens = [" +
+            ", ".join(f'"{t}"' for t in existing) + "]", text, count=1)
+    else:
+        text += f"\n[{platform}]\ntokens = [\"{token}\"]\n"
+    path.write_text(text)
+
+
+def cmd_addtoken(args: argparse.Namespace) -> None:
+    platform = "workable" if args.platform == "workable" else "smartrecruiters"
+    token = _extract_token(platform, args.url_or_token)
+    count = _probe_token(platform, token)
+    if count is None:
+        sys.exit(f"probe failed for '{token}' — invalid token or network error")
+    if count == 0:
+        sys.exit(f"token '{token}' is valid but lists 0 jobs — not adding")
+    _append_token(Path("boards.toml"), platform, token)
+    print(f"added {platform} token '{token}' ({count} jobs) to boards.toml")
+
+
 def main(argv: list[str] | None = None) -> None:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", default=str(db.DEFAULT_DB))
@@ -228,6 +293,11 @@ def main(argv: list[str] | None = None) -> None:
     d = sub.add_parser("dashboard", parents=[common], help="local web view of the queue")
     d.add_argument("--port", type=int, default=8799)
     d.set_defaults(func=cmd_dashboard)
+
+    a = sub.add_parser("addtoken", help="verify an ATS token from an apply URL and add it to boards.toml")
+    a.add_argument("platform", choices=["workable", "smartrecruiters"])
+    a.add_argument("url_or_token", help="full apply URL or bare token")
+    a.set_defaults(func=cmd_addtoken)
 
     args = p.parse_args(argv)
     args.func(args)
