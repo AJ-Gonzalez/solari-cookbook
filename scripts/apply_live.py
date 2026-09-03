@@ -115,11 +115,33 @@ def main() -> int:
         if ashby:
             log("ashby form detected")
             from src.jobber.driver import drive_ashby
-            page.goto(job_url, wait_until="domcontentloaded", timeout=45000)
+            for attempt in (1, 2, 3):
+                try:
+                    page.goto(job_url, wait_until="domcontentloaded",
+                              timeout=45000)
+                    break
+                except Exception as e:
+                    log(f"goto attempt {attempt} failed: {str(e)[:60]}")
+                    page.wait_for_timeout(3000)
             page.wait_for_timeout(4000)
             status = drive_ashby(page, page.main_frame, resume, bank, ask,
                                  dry_run=False)
             log(f"driver fill done: {status}")
+            # per-group ground truth: question + selected option text
+            fieldsets = page.locator("fieldset")
+            for i in range(fieldsets.count()):
+                fs = fieldsets.nth(i)
+                if fs.locator("input[type=radio]").count() == 0:
+                    continue
+                checked = fs.locator("input[type=radio]:checked")
+                n = checked.count()
+                if n:
+                    sel = checked.first.evaluate(
+                        "el => { const c = el.closest('div[class*=option]');"
+                        " return c ? c.innerText.trim() : '?'; }")
+                    log(f"radio group OK: '{sel[:60]}'")
+                else:
+                    log("radio group UNANSWERED")
         else:
             app, form = open_application(page, job_url)
             if app is None:
