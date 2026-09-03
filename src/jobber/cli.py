@@ -190,16 +190,18 @@ def cmd_similar(args: argparse.Namespace) -> None:
     conn = db.connect(Path(args.db))
     try:
         results = find_similar(conn, args.id, args.top)
+        if not results:
+            sys.exit(f"no similar roles found for id {args.id}")
+        print(f"roles similar to [{args.id}]:")
+        for r in results:
+            comp = (f"{r['comp_min']}-{r['comp_max']} {r['comp_currency']}"
+                    if r["comp_min"] else "?")
+            url = conn.execute("SELECT url FROM jobs WHERE rowid=?",
+                               (r["rowid"],)).fetchone()[0]
+            print(f"  {r['score']:.3f}  [{r['rowid']}] {r['company']}"
+                  f"  {r['title'][:44]}  {comp:<14} {url}")
     finally:
         conn.close()
-    if not results:
-        sys.exit(f"no similar roles found for id {args.id}")
-    print(f"roles similar to [{args.id}]:")
-    for r in results:
-        comp = (f"{r['comp_min']}-{r['comp_max']} {r['comp_currency']}"
-                if r["comp_min"] else "?")
-        print(f"  {r['score']:.3f}  [{r['rowid']}] {r['company']}"
-              f"  {r['title'][:44]}  {comp:<14} {r['url']}")
 
 def cmd_dashboard(args: argparse.Namespace) -> None:
     from .dashboard import serve  # deferred: keeps CLI startup free of server imports
