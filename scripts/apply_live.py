@@ -103,10 +103,6 @@ def main() -> int:
         )
         page = ctx.new_page()
         log(f"opening {job_url}")
-        app, form = open_application(page, job_url)
-        if app is None:
-            log("no application form found")
-            return 1
 
         def ask(fields):
             print(f"\n=== {len(fields)} field(s) I can't answer — please "
@@ -115,12 +111,27 @@ def main() -> int:
                 print(f"  - {f.label[:80]}")
             return {}
 
-        status = walk_and_fill(page, app, resume, bank, ask, dry_run=False)
-        log(f"driver fill done: {status}")
-        page.screenshot(path="/tmp/live_state.png", full_page=True)
+        ashby = "ashbyhq.com" in page.url or "ashbyhq.com" in job_url
+        if ashby:
+            log("ashby form detected")
+            from src.jobber.driver import drive_ashby
+            page.goto(job_url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(4000)
+            status = drive_ashby(page, page.main_frame, resume, bank, ask,
+                                 dry_run=False)
+            log(f"driver fill done: {status}")
+        else:
+            app, form = open_application(page, job_url)
+            if app is None:
+                log("no application form found")
+                return 1
+            status = walk_and_fill(page, app, resume, bank, ask, dry_run=False)
+            log(f"driver fill done: {status}")
+            page.screenshot(path="/tmp/live_state.png", full_page=True)
 
         # Gaps: the human fills them in the visible window; we poll.
-        gaps = empty_required(app)
+        # (Ashby gap detection is not wired yet — fill leftovers by hand.)
+        gaps = [] if ashby else empty_required(app)
         if gaps:
             print(f"\n=== {len(gaps)} required field(s) still empty — please "
                   "fill them in the browser window (no timeout; I'll wait) "
@@ -130,7 +141,7 @@ def main() -> int:
             while True:
                 time.sleep(3)
                 try:
-                    gaps = empty_required(app)
+                    gaps = [] if ashby else empty_required(app)
                 except Exception:
                     log("window was closed by the user — exiting")
                     return 1

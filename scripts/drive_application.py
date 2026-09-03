@@ -18,6 +18,9 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+from src.jobber import db
+from src.jobber.answers import AnswersBank, seed_from_file
+
 RESUME = Path("/tmp/mock-harness-test.pdf")
 MOCK_PDF = b"""%PDF-1.4
 1 0 obj
@@ -357,6 +360,9 @@ def main() -> int:
     dry_run = "--dry-run" in sys.argv
     resume_path = RESUME
     resume_path.write_bytes(MOCK_PDF)
+    conn = db.connect()
+    bank = AnswersBank(conn)
+    seed_from_file(bank, "answers.toml")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -378,6 +384,14 @@ def main() -> int:
                           wait_until="domcontentloaded", timeout=45000)
                 page.wait_for_timeout(2000)
             code = drive_lever(page, resume_path, dry_run)
+            browser.close()
+            return code
+
+        if "ashbyhq.com" in page.url:
+            log("ashby form detected")
+            from src.jobber.driver import drive_ashby
+            code = drive_ashby(page, page.main_frame, resume_path,
+                               lambda q: {}, dry_run)
             browser.close()
             return code
 

@@ -23,6 +23,10 @@ DECLINE_PAT = re.compile(
     r"decline|none of the|not applicable|don't wish|do not want|prefer not",
     re.I)
 EEO_PAT = re.compile(r"gender|ethnic|race|veteran|disability|identify", re.I)
+
+
+def log(msg: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 NEXT_PAT = re.compile(r"\b(next|continue)\b", re.I)
 SUBMIT_PAT = re.compile(r"\b(submit|apply)\b", re.I)
 
@@ -272,6 +276,181 @@ def open_application(page, job_url: str, timeout_s: float = 30):
         app = find_app_frame(page)
         form = app.locator("#application-form")
     return (app, form) if form.count() else (None, None)
+
+
+def drive_ashby(page, app, resume_path, bank: AnswersBank, ask_callback,
+                dry_run: bool = False) -> str:
+    """Ashby application forms: React SPA, UUID-named fields, hashed CSS
+    classes, no <form> element. Radio groups live in fieldsets whose text
+    is 'question * option1 option2 ...'. Human performs the final submit.
+    """
+    if app.locator("input[type=text], textarea").count() < 2:
+        btn = page.locator("button:has-text('Apply')").first
+        if btn.count():
+            btn.click(timeout=8000)
+            page.wait_for_timeout(4000)
+
+    inputs = app.locator(
+        "input:not([type=hidden]):not([type=radio]):not([type=checkbox])"
+        ":not([type=file]):not([type=submit]), "
+        "textarea:not([name='g-recaptcha-response'])")
+    n = inputs.count()
+    for i in range(n):
+        el = inputs.nth(i)
+        info = el.evaluate(
+            """el => {
+                if (el.classList.contains('iti__search-input')) return null;
+                let q = null;
+                let t = el;
+                for (let k = 0; k < 6 && t; k++) {
+                    t = t.parentElement;
+                    if (!t) break;
+                    const lbl = t.querySelector('label[for]');
+                    if (lbl && lbl.textContent.trim().length > 1) {
+                        q = lbl.textContent.trim(); break;
+                    }
+                }
+                if (!q) {
+                    let s = el;
+                    for (let k = 0; k < 5 && s; k++) {
+                        s = s.parentElement;
+                        if (!s) break;
+                        const cand = [...s.children].filter(
+                            c => !c.contains(el) && c.innerText &&
+                            c.innerText.trim().length > 3 &&
+                            c.innerText.trim().length < 120);
+                        if (cand.length) { q = cand[cand.length-1].innerText.trim(); break; }
+                    }
+                }
+                return {name: el.name || null, type: el.type || null, q: q};
+            }""")
+        if info is None:
+            continue
+        name, ftype, q = info["name"], info["type"], info["q"] or ""
+        if ftype == "email" or name == "_systemfield_email" or                 (q and "email" in q.lower()):
+            entry = bank.lookup("email")
+            val = entry.answer if entry else None
+        elif name == "_systemfield_name":
+            first = bank.lookup("first name")
+            last = bank.lookup("last name")
+            val = ((first.answer if first else "") + " " +
+                   (last.answer if last else "")).strip()
+        elif q and "location" in q.lower():
+            entry = bank.lookup("location city")
+            if not entry:
+                continue
+            el.click(timeout=5000)
+            el.type(entry.answer.split(",")[0].strip(), delay=60)
+            page.wait_for_timeout(2500)
+            sug = app.locator("[class*='suggestion'], [role='option']")
+            if sug.count():
+                sug.first.click(timeout=5000)
+            continue
+        elif q and "github" in q.lower():
+            entry = bank.lookup("website")
+            val = entry.answer if entry else None
+            if not val: continue
+        else:
+            entry = bank.lookup(q) if q else None
+            if entry is None and q:
+                entry = bank.lookup(_question_key(q))
+            val = entry.answer if entry else None
+            if not val and q:
+                human = ask_callback([FormField(label=q, kind=ftype,
+                                                locator_id="")])
+                val = human.get(q)
+            if not val:
+                continue
+        try:
+            el.fill(val, timeout=5000)
+        except Exception as e:
+            print(f"  ashby fill failed [{name or q[:30]}]: {str(e)[:50]}")
+
+    # Radio groups (fieldsets): question = first text line, options = rest.
+    fieldsets = app.locator("fieldset")
+    for i in range(fieldsets.count()):
+        fs = fieldsets.nth(i)
+        if fs.locator("input[type=radio]").count() == 0:
+            continue
+        lines = [l.strip() for l in fs.inner_text().split("\n") if l.strip()]
+        if not lines:
+            continue
+        question = lines[0]
+        options = [l for l in lines[1:] if len(l) > 1]
+        entry = bank.lookup(question)
+        answer = entry.answer if entry else None
+        if not answer and EEO_PAT.search(question):
+            answer = "DECLINE"
+        if not answer and "sponsorship" in question.lower():
+            entry = bank.lookup("sponsorship")
+            answer = entry.answer if entry else None
+        if not answer and "relocat" in question.lower():
+            entry = bank.lookup("relocate")
+            answer = entry.answer if entry else None
+        if not answer and "clearance" in question.lower():
+            entry = bank.lookup("clearance")
+            answer = entry.answer if entry else None
+        if not answer:
+            human = ask_callback([FormField(label=question, kind="radio",
+                                            options=options, locator_id="")])
+            answer = human.get(question)
+        if not answer:
+            continue
+        if answer == "DECLINE":
+            pick = next((o for o in options if DECLINE_PAT.search(o)), None)
+        else:
+            pick = next((o for o in options
+                         if o.lower() == answer.lower()
+                         or answer.lower() in o.lower()), None)
+        if pick is None:
+            # parsed options can miss decline variants; try the DOM anyway
+            fallback = fs.locator("label, [class*='option']",
+                                  has_text=answer[:12]).last
+            if fallback.count() == 0:
+                print(f"  ashby radio: no option for '{answer[:30]}' in "
+                      f"'{question[:40]}'")
+                continue
+            try:
+                fallback.click(timeout=5000)
+                print(f"  ashby radio (fallback): '{answer[:30]}' "
+                      f"({question[:40]})")
+            except Exception as e:
+                print(f"  ashby radio failed [{question[:40]}]: {str(e)[:50]}")
+            continue
+        target = fs.locator("label, [class*='option']", has_text=pick).last
+        try:
+            target.click(timeout=5000)
+            print(f"  ashby radio: '{pick[:30]}' ({question[:40]})")
+        except Exception as e:
+            print(f"  ashby radio failed [{question[:40]}]: {str(e)[:50]}")
+
+    # Resume: first required file input.
+    files = app.locator("input[type=file]")
+    for i in range(files.count()):
+        f = files.nth(i)
+        required = f.evaluate(
+            "el => !!el.required || !!el.getAttribute('aria-required')")
+        if required:
+            try:
+                f.set_input_files(str(resume_path), timeout=10000)
+                page.wait_for_timeout(2500)
+                log("ashby resume attached")
+            except Exception as e:
+                log(f"ashby resume failed: {str(e)[:60]}")
+            break
+
+    return "ready"
+
+
+def _question_key(q: str) -> str:
+    """Cheap question normalization for bank fallback lookups."""
+    q = q.lower().strip().rstrip("*?")
+    if "sponsorship" in q: return "sponsorship"
+    if "legally authorized" in q: return "legally authorized to work"
+    if "clearance" in q or "top secret" in q: return "clearance"
+    if "relocat" in q: return "relocate"
+    if "years" in q and "experience" in q: return "industry experience"
+    return q
 
 
 def find_app_frame(page):
