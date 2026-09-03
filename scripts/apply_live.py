@@ -13,6 +13,7 @@ Usage: .venv/bin/python scripts/apply_live.py <job_url>
 """
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -86,6 +87,8 @@ def learn_typed(app_frame, bank, fields) -> int:
 
 def main() -> int:
     job_url = sys.argv[1]
+    toggles = tomllib.load(open("answers.toml", "rb")).get("toggles", {})
+    auto_submit = bool(toggles.get("auto_submit"))
     conn = db.connect()
     bank = AnswersBank(conn)
     seed_from_file(bank, "answers.toml")
@@ -127,6 +130,14 @@ def main() -> int:
             status = drive_ashby(page, page.main_frame, resume, bank, ask,
                                  dry_run=False)
             log(f"driver fill done: {status}")
+            if auto_submit and status == "ready":
+                submit = page.locator(
+                    "button", has_text="Submit Application").first
+                if submit.count() and not submit.is_disabled():
+                    log("AUTO-SUBMIT: clicking Submit")
+                    submit.click(timeout=15000)
+                else:
+                    log("AUTO-SUBMIT: submit missing/disabled — not sent")
             # per-group ground truth: question + selected option text
             fieldsets = page.locator("fieldset")
             for i in range(fieldsets.count()):
@@ -150,6 +161,14 @@ def main() -> int:
             status = walk_and_fill(page, app, resume, bank, ask, dry_run=False)
             log(f"driver fill done: {status}")
             page.screenshot(path="/tmp/live_state.png", full_page=True)
+            if auto_submit and status == "ready":
+                submit = app.locator(
+                    "button", has_text="Submit application").first
+                if submit.count() and not submit.is_disabled():
+                    log("AUTO-SUBMIT: clicking Submit")
+                    submit.click(timeout=15000)
+                else:
+                    log("AUTO-SUBMIT: submit missing/disabled — not sent")
 
         # Gaps: the human fills them in the visible window; we poll.
         # (Ashby gap detection is not wired yet — fill leftovers by hand.)
