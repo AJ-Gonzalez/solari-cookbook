@@ -430,6 +430,54 @@ def drive_ashby(page, app, resume_path, bank: AnswersBank, ask_callback,
         except Exception as e:
             print(f"  ashby radio failed [{question[:40]}]: {str(e)[:60]}")
 
+    # Yes/No button groups (Ashby renders many yes/no questions as button
+    # pairs inside _fieldEntry blocks — not radio inputs).
+    blocks = app.locator("div[class*='_fieldEntry_']")
+    for i in range(blocks.count()):
+        fe = blocks.nth(i)
+        yes = fe.locator("button", has_text=re.compile(r"^Yes$", re.I))
+        no = fe.locator("button", has_text=re.compile(r"^No$", re.I))
+        if yes.count() == 0 or no.count() == 0:
+            continue
+        raw = fe.inner_text()
+        question = re.sub(r"\s+", " ", re.sub(r"\b(Yes|No)\b", " ", raw))
+        question = question.replace("*", "").strip()
+        if not question:
+            continue
+        entry = bank.lookup(question)
+        answer = entry.answer if entry else None
+        if not answer and "sponsorship" in question.lower():
+            e = bank.lookup("sponsorship")
+            answer = e.answer if e else None
+        if not answer and "legally authorized" in question.lower():
+            e = bank.lookup("legally authorized to work")
+            answer = e.answer if e else None
+        if not answer and "relocat" in question.lower():
+            e = bank.lookup("relocate")
+            answer = e.answer if e else None
+        if not answer and "18 years" in question.lower():
+            answer = "Yes"
+        if not answer:
+            human = ask_callback([FormField(label=question, kind="radio",
+                                            options=["Yes", "No"],
+                                            locator_id="")])
+            answer = human.get(question)
+        if not answer:
+            continue
+        a = answer.strip().lower()
+        btn = yes.first if a.startswith("yes") else (
+              no.first if a.startswith("no") else None)
+        if btn is None:
+            print(f"  ashby yes/no: unclear answer '{answer[:30]}' for "
+                  f"'{question[:40]}'")
+            continue
+        try:
+            btn.click(timeout=5000)
+            print(f"  ashby yes/no: '{'Yes' if a.startswith('yes') else 'No'}' "
+                  f"({question[:45]})")
+        except Exception as e:
+            print(f"  ashby yes/no failed [{question[:40]}]: {str(e)[:50]}")
+
     # Resume: first required file input.
     files = app.locator("input[type=file]")
     for i in range(files.count()):
