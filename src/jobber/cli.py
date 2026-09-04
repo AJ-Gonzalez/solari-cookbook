@@ -203,6 +203,37 @@ def cmd_similar(args: argparse.Namespace) -> None:
     finally:
         conn.close()
 
+
+def cmd_bestshot(args: argparse.Namespace) -> None:
+    from .bestshot import bestshot  # deferred: tokenization costs ~3s
+    criteria = load_criteria()
+    conn = db.connect(Path(args.db))
+    try:
+        resume = Path(args.resume)
+        resume_text = resume.read_text() if resume.exists() else ""
+        if not resume_text:
+            print(f"warning: {args.resume} missing — fit is focus-only")
+        results = bestshot(conn, resume_text, criteria,
+                           per_company=args.per_company,
+                           min_fit=args.min_fit, limit=args.limit)
+        if not results:
+            sys.exit("no bestshot results — check gates/statuses/min-fit")
+        print(f"best shots: {len(results)} roles "
+              f"(cap {args.per_company}/company, floor {args.min_fit})")
+        for r in results:
+            comp = (f"{r['comp_min']}-{r['comp_max']} {r['comp_currency']}"
+                    if r["comp_min"] else "?")
+            flags = (f"  [{', '.join(r['screening'])}]"
+                     if r["screening"] else "")
+            reposts = f" (+{r['reposts']} reposts)" if r["reposts"] else ""
+            print(f"  {r['score']:.3f} (fit {r['fit']:.3f})"
+                  f"  [{r['rowid']}] {r['company']}  {r['title'][:44]}"
+                  f"  {comp:<14}{reposts}{flags}")
+            print(f"        {r['url']}")
+    finally:
+        conn.close()
+
+
 def cmd_batch_apply(args: argparse.Namespace) -> None:
     import tomllib
     from .answers import AnswersBank, seed_from_file
@@ -417,6 +448,18 @@ def main(argv: list[str] | None = None) -> None:
     sim.add_argument("--top", type=int, default=15)
     sim.set_defaults(func=cmd_similar)
 
+    bs = sub.add_parser("bestshot", parents=[common],
+                        help="ranked apply queue: resume-seeded fit, "
+                             "repost dedup, capped roles per company")
+    bs.add_argument("--per-company", type=int, default=2,
+                    help="max distinct roles kept per company")
+    bs.add_argument("--min-fit", type=float, default=0.06,
+                    help="raw cosine floor before priority boosting")
+    bs.add_argument("--limit", type=int, default=40,
+                    help="max roles in the output queue")
+    bs.add_argument("--resume", default="resume.md",
+                    help="markdown resume used as the fit seed")
+    bs.set_defaults(func=cmd_bestshot)
     a = sub.add_parser("addtoken", help="verify an ATS token from an apply URL and add it to boards.toml")
     a.add_argument("platform", choices=["workable", "smartrecruiters"])
     a.add_argument("url_or_token", help="full apply URL or bare token")

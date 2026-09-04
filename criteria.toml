@@ -61,8 +61,28 @@ reject = [
   "new york city", "san francisco", "los angeles", "chicago", "seattle",
   "boston", "austin", "denver", "atlanta", "dallas", "houston", "miami",
   "philadelphia", "phoenix", "mountain view", "palo alto", "san jose",
+  # metros that appear without their country ("London Office", "(Korea)")
+  "london", "dublin", "tokyo", "seoul", "korea", "shenzhen", "beijing",
+  "hong kong", "dubai", "saudi", "ksa", "tel aviv", "bangalore", "mumbai",
+  "asean",
   # Canada (provinces + major metros)
   "ontario", "quebec", "british columbia", "alberta", "manitoba",
   "saskatchewan", "nova scotia", "toronto", "vancouver", "montreal",
   "calgary", "ottawa",
 ]
+
+[bestshot]
+# Fit seed: tokens added to the resume document at title weight (3x) so
+# the cosine points at where you want to go, not where the resume has been.
+focus = [
+  "agentic", "agent orchestration", "RAG", "LLM", "MCP", "AI engineer",
+  "customer success", "solutions engineer", "developer advocate", "gtm",
+]
+# Titles containing any of these get their fit score multiplied by
+# priority_boost. Cosine cannot know "Customer Success Engineer" beats a
+# generic Python role that merely shares more tokens with the resume.
+priority = [
+  "customer success", "solutions engineer", "customer engineer",
+  "support engineer", "technical account manager", "forward deployed",
+]
+priority_boost = 2.0

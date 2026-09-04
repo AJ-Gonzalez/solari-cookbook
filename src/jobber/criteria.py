@@ -1,6 +1,6 @@
 """Load search criteria and board tokens from TOML config (stdlib tomllib)."""
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_CRITERIA = Path("criteria.toml")
@@ -16,6 +16,9 @@ class Criteria:
     loc_accept: list[str]
     loc_reject: list[str]
     desc_exclude: list[str]
+    bestshot_focus: list[str] = field(default_factory=list)
+    bestshot_priority: list[str] = field(default_factory=list)
+    bestshot_priority_boost: float = 2.0
 
     def title_matches(self, title: str) -> bool:
         t = title.lower()
@@ -40,6 +43,9 @@ def load_criteria(path: Path = DEFAULT_CRITERIA) -> Criteria:
         loc_accept=d["location"]["accept"],
         loc_reject=d["location"]["reject"],
         desc_exclude=d["filters"]["exclude_description"],
+        bestshot_focus=d.get("bestshot", {}).get("focus", []),
+        bestshot_priority=d.get("bestshot", {}).get("priority", []),
+        bestshot_priority_boost=d.get("bestshot", {}).get("priority_boost", 2.0),
     )
 
 
