@@ -55,7 +55,7 @@ _PAGE = """<!doctype html>
           padding: 3px 11px; color: var(--dim); user-select: none; font-size: 13px; }
   .chip.on { border-color: var(--accent); color: var(--accent);
              background: #16283c; font-weight: 700; }
-  #sortbtn { border: 1px solid var(--accent); color: var(--accent); background: var(--panel2);
+  #sortbtn, #bsbtn { border: 1px solid var(--accent); color: var(--accent); background: var(--panel2);
              border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit;
              font-weight: 700; }
   #count { color: var(--dim); font-size: 13px; margin-left: auto; }
@@ -99,6 +99,7 @@ _PAGE = """<!doctype html>
 <div id="bar">
   <input id="search" placeholder="filter title / company">
   <button id="sortbtn" title="cycle sort order">sort: ratio ↓</button>
+  <button id="bsbtn" title="resume-seeded best-shot queue">bestshot</button>
   <span class="chip on" data-st="new">new</span>
   <span class="chip on" data-st="queued">queued</span>
   <span class="chip" data-st="staged">staged</span>
@@ -148,6 +149,32 @@ document.getElementById("sortbtn").onclick = () => {
   document.getElementById("sortbtn").textContent = SORT_LABEL[SORT];
   render();
 };
+document.getElementById("bsbtn").onclick = showBestshot;
+async function showBestshot() {
+  const hits = await (await fetch("/api/bestshot")).json();
+  const rows = hits.length ? hits.map(r => `
+      <tr class="job" onclick="pick(${r.rowid})">
+        <td class="num">${r.score.toFixed(3)}</td>
+        <td class="num">${r.fit.toFixed(3)}</td>
+        <td class="id">${r.rowid}</td>
+        <td class="num">${esc(comp(r))}</td>
+        <td>${r.reposts ? "+" + r.reposts : ""}</td>
+        <td class="st-${r.status}">${r.status}</td>
+        <td>${esc(r.company)}</td>
+        <td>${esc(r.title)}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="8"><span class="hint">no best-shot results — check resume.md and criteria [bestshot]</span></td></tr>`;
+  document.getElementById("bottom").innerHTML = `
+    <h2>best-shot queue
+      <button class="copy" onclick="showBestshot()">refresh</button>
+      <span class="hint">score = fit x priority boost · reposts are collapsed duplicates · click a row to read it</span></h2>
+    <table><thead><tr>
+      <th>score</th><th>fit</th><th>id</th><th class="num">comp usd</th>
+      <th>reposts</th><th>status</th><th>company</th><th>title</th>
+    </tr></thead><tbody>
+    ${rows}
+    </tbody></table>`;
+}
 document.querySelectorAll(".chip[data-st]").forEach(c => c.onclick = () => {
   const v = c.dataset.st;
   sts.has(v) ? sts.delete(v) : sts.add(v);
@@ -351,6 +378,19 @@ def _jobs_payload(path: str) -> list[dict]:
     return out
 
 
+def _bestshot_payload(path: str) -> list[dict]:
+    from .bestshot import bestshot
+    from .criteria import load_criteria
+    criteria = load_criteria()
+    resume = Path("resume.md")
+    resume_text = resume.read_text() if resume.exists() else ""
+    conn = db.connect(Path(path))
+    try:
+        return bestshot(conn, resume_text, criteria)
+    finally:
+        conn.close()
+
+
 def _assign_bands(rows: list[dict]) -> None:
     """Quartile bands over positive-ratio listings: 'Top 25%' is the best
     comp-per-requirement quarter of the queue. Unknown comp shows '—'."""
@@ -416,6 +456,9 @@ def make_handler(path: str):
                 self._send(200, _PAGE.encode(), "text/html; charset=utf-8")
             elif route == "/api/jobs":
                 body = json.dumps(_jobs_payload(path)).encode()
+                self._send(200, body, "application/json")
+            elif route == "/api/bestshot":
+                body = json.dumps(_bestshot_payload(path)).encode()
                 self._send(200, body, "application/json")
             elif m := _JOB_ROUTE.match(route):
                 job = _job_payload(path, int(m.group(1)))
