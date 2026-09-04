@@ -180,6 +180,22 @@ class Bestshot(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_hn_rows_excluded_no_form(self):
+        jobs = [
+            _job(51, "AtsCo", "Python Engineer",
+                 "python automation LLM agents\n" * 10),
+            _job(52, "HnCo", "Python Engineer",
+                 "python automation LLM agents\n" * 10),
+        ]
+        jobs[1]["source"] = "hnwhoishiring"
+        conn = _seed_db(jobs)
+        try:
+            out = bestshot(conn, RESUME, C, per_company=5, min_fit=0.0,
+                           limit=50)
+            self.assertEqual([r["rowid"] for r in out], [51])
+        finally:
+            conn.close()
+
     def test_needs_human_demoted_with_gap_labels(self):
         conn = _seed_db([
             _job(21, "CleanCo", "Python Engineer",

@@ -74,7 +74,8 @@ def bestshot(
 ) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT rowid, company, title, url, location, location_eligible,
+        SELECT rowid, source, company, title, url, location,
+               location_eligible,
                comp_min, comp_max, comp_currency, status,
                first_seen, last_seen, description
         FROM jobs
@@ -82,6 +83,10 @@ def bestshot(
           AND status IN (%s)
         """ % ",".join("?" * len(statuses)),
         statuses).fetchall()
+    # TEMPORARY: HN "who is hiring" rows carry no ATS form, so batch apply
+    # burns a browser cycle per row and lands no_form. Out until HN rows
+    # get a form path.
+    rows = [r for r in rows if r["source"] != "hnwhoishiring"]
     if not rows:
         return []
 
