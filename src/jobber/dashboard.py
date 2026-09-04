@@ -100,6 +100,7 @@ _PAGE = """<!doctype html>
   <input id="search" placeholder="filter title / company">
   <button id="sortbtn" title="cycle sort order">sort: ratio ↓</button>
   <button id="bsbtn" title="resume-seeded best-shot queue">bestshot</button>
+  <button id="bsapplybtn" title="batch-apply every best-shot job; submits for real when auto-submit is on">apply best shots</button>
   <span class="chip on" data-st="new">new</span>
   <span class="chip on" data-st="queued">queued</span>
   <span class="chip" data-st="staged">staged</span>
@@ -150,6 +151,13 @@ document.getElementById("sortbtn").onclick = () => {
   render();
 };
 document.getElementById("bsbtn").onclick = showBestshot;
+document.getElementById("bsapplybtn").onclick = async () => {
+  if (!confirm("Apply to ALL best-shot jobs? Auto-submit is ON — this submits real applications.")) return;
+  const r = await fetch("/api/apply-bestshot", {method: "POST"});
+  const t = await r.text();
+  document.getElementById("bottom").innerHTML =
+    `<div class="placeholder">${esc(t)}</div>`;
+};
 async function showBestshot() {
   const hits = await (await fetch("/api/bestshot")).json();
   const rows = hits.length ? hits.map(r => `
@@ -477,8 +485,40 @@ def make_handler(path: str):
             else:
                 self._send(404, b"not found", "text/plain")
 
+        def _start_bestshot_batch(self) -> None:
+            proc = _apply_state["proc"]
+            if proc is not None and proc.poll() is None:
+                self._send(409, b"an apply run is already active",
+                           "text/plain")
+                return
+            n = len(_bestshot_payload(path))
+            if n == 0:
+                self._send(200, b"no best-shot jobs right now", "text/plain")
+                return
+            root = Path(__file__).resolve().parents[2]
+            py = root / ".venv" / "bin" / "python"
+            if not py.exists():
+                py = Path(sys.executable)
+            env = os.environ.copy()
+            env["PYTHONPATH"] = (str(root / "src") + os.pathsep
+                                 + env.get("PYTHONPATH", ""))
+            logf = open("/tmp/batch_apply_bestshot.log", "w")
+            _apply_state["proc"] = subprocess.Popen(
+                [str(py), "-m", "jobber.cli", "batch-apply",
+                 "--from-bestshot", "--limit", str(n)],
+                cwd=str(root), stdout=logf, stderr=subprocess.STDOUT,
+                env=env)
+            self._send(200, (
+                f"batch apply started (pid {_apply_state['proc'].pid}): "
+                f"{n} best-shot jobs, one at a time; "
+                f"log /tmp/batch_apply_bestshot.log").encode(),
+                "text/plain")
+
         def do_POST(self) -> None:
             route = urlparse(self.path).path
+            if route == "/api/apply-bestshot":
+                self._start_bestshot_batch()
+                return
             m = _APPLY_ROUTE.match(route)
             if not m:
                 self._send(404, b"not found", "text/plain")
