@@ -15,10 +15,12 @@ Pipeline (design from 2026-09-04):
            then newer-last_seen variant.
   cap    — top N distinct roles per company, then global fit ranking.
 
-Viability modifiers (needs_human penalty, screening demotion) are a
-later stage — screening flags ride along in the payload so the human
-sees them either way.
+  viable — needs_human rows demoted (NEEDS_HUMAN_PENALTY) but kept, with
+           their latest apply_runs gap labels attached; screening-flagged
+           rows demoted (SCREENING_PENALTY), never hidden. Both show in
+           the payload so the human decides with full information.
 """
+import json
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -29,6 +31,13 @@ from .eligibility import location_eligible
 from .gates import screening_signals
 
 REPOST_COSINE = 0.7  # reposts share near-identical JDs; distinct roles don't
+
+# Viability demotions (stage 4). Both are multiplicative on the boosted
+# score, never filters: needs_human jobs still surface (with their gap
+# labels) because banking the answers pulls them up the queue, and
+# screening-flagged jobs stay visible for an informed human choice.
+NEEDS_HUMAN_PENALTY = 0.5
+SCREENING_PENALTY = 0.8
 
 
 def seed_counts(resume_text: str, focus: list[str]) -> Counter:
@@ -61,7 +70,7 @@ def bestshot(
     per_company: int = 2,
     min_fit: float = 0.06,
     limit: int = 40,
-    statuses: tuple[str, ...] = ("new", "queued"),
+    statuses: tuple[str, ...] = ("new", "queued", "needs_human"),
 ) -> list[dict]:
     rows = conn.execute(
         """
@@ -98,8 +107,16 @@ def bestshot(
         if fit < min_fit:
             continue
         title_low = (r["title"] or "").lower()
-        boosted = fit * criteria.bestshot_priority_boost if any(
+        penalty = 1.0
+        if r["status"] == "needs_human":
+            penalty *= NEEDS_HUMAN_PENALTY
+        screening = screening_signals(
+            (r["title"] or "") + "\n" + (r["description"] or ""))
+        if screening:
+            penalty *= SCREENING_PENALTY
+        fit_boosted = fit * criteria.bestshot_priority_boost if any(
             p in title_low for p in criteria.bestshot_priority) else fit
+        boosted = fit_boosted * penalty
         kept.append({
             "rowid": r["rowid"], "company": r["company"],
             "title": r["title"], "url": r["url"], "location": r["location"],
@@ -107,8 +124,7 @@ def bestshot(
             "comp_min": r["comp_min"], "comp_max": r["comp_max"],
             "comp_currency": r["comp_currency"], "status": r["status"],
             "fit": round(fit, 4), "score": round(boosted, 4),
-            "screening": screening_signals(
-                (r["title"] or "") + "\n" + (r["description"] or "")),
+            "penalty": round(penalty, 2), "screening": screening,
             "last_seen": r["last_seen"],
             "_counts": docs[r["rowid"]],
             "_cokey": _norm_company(r["company"]),
@@ -116,6 +132,18 @@ def bestshot(
     if not kept:
         return []
 
+    # Latest gap labels for needs_human rows, so the human sees exactly
+    # what the answer bank is missing before deciding to bank them.
+    nh_ids = [r["rowid"] for r in kept if r["status"] == "needs_human"]
+    gaps_by_row: dict = {}
+    if nh_ids:
+        for g in conn.execute(
+                "SELECT job_rowid, gaps FROM apply_runs WHERE job_rowid "
+                "IN (%s) ORDER BY started_at" % ",".join("?" * len(nh_ids)),
+                nh_ids):
+            gaps_by_row[g["job_rowid"]] = json.loads(g["gaps"])
+    for r in kept:
+        r["gaps"] = gaps_by_row.get(r["rowid"], [])
     # Group by company, collapse reposts, cap distinct roles.
     by_co: dict[str, list[dict]] = defaultdict(list)
     for r in kept:

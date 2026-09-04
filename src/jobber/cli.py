@@ -225,6 +225,10 @@ def cmd_bestshot(args: argparse.Namespace) -> None:
                     if r["comp_min"] else "?")
             flags = (f"  [{', '.join(r['screening'])}]"
                      if r["screening"] else "")
+            if r.get("gaps"):
+                flags += f"  gaps: {', '.join(r['gaps'])}"
+            if r["penalty"] < 1.0:
+                flags += f"  (demoted x{r['penalty']})"
             reposts = f" (+{r['reposts']} reposts)" if r["reposts"] else ""
             print(f"  {r['score']:.3f} (fit {r['fit']:.3f})"
                   f"  [{r['rowid']}] {r['company']}  {r['title'][:44]}"
@@ -246,7 +250,7 @@ def cmd_batch_apply(args: argparse.Namespace) -> None:
         sys.exit("no resume at personal/resume.pdf — batch apply attaches it")
     toggles = tomllib.load(open("answers.toml", "rb")).get("toggles", {})
     cohort = Cohort(seniority=args.seniority, query=args.query,
-                    limit=args.limit)
+                    limit=args.limit, from_bestshot=args.from_bestshot)
     summary = run_batch(conn, cohort, bank, resume,
                         auto_submit=bool(toggles.get("auto_submit")))
     print(f"\nbatch done: {summary}")
@@ -440,6 +444,9 @@ def main(argv: list[str] | None = None) -> None:
                    help="substring filter on title/company, e.g. 'backend'")
     b.add_argument("--limit", type=int, default=10,
                    help="max jobs in the cohort (best-ratio first)")
+    b.add_argument("--from-bestshot", action="store_true",
+                   help="order the cohort by resume fit (bestshot) "
+                        "instead of comp-per-requirement ratio")
     b.set_defaults(func=cmd_batch_apply)
 
     sim = sub.add_parser("similar", parents=[common],

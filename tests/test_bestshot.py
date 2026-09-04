@@ -180,6 +180,68 @@ class Bestshot(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_needs_human_demoted_with_gap_labels(self):
+        conn = _seed_db([
+            _job(21, "CleanCo", "Python Engineer",
+                 "python automation LLM agents\n" * 10),
+            _job(22, "StuckCo", "Python Engineer",
+                 "python automation LLM agents\n" * 10,
+                 status="needs_human"),
+        ])
+        conn.execute(
+            "INSERT INTO apply_runs (job_rowid, started_at, outcome, gaps) "
+            "VALUES (22, '2026-09-03T10:00:00', 'needs_human', ?)",
+            ('["phone number", "work auth"]',))
+        conn.commit()
+        try:
+            out = bestshot(conn, RESUME, C, per_company=5, min_fit=0.0,
+                           limit=50)
+            by_id = {r["rowid"]: r for r in out}
+            self.assertGreater(by_id[21]["score"], by_id[22]["score"])
+            self.assertEqual(by_id[22]["gaps"],
+                             ["phone number", "work auth"])
+            self.assertEqual(by_id[21]["gaps"], [])
+        finally:
+            conn.close()
+
+    def test_screening_flag_demotes_but_keeps(self):
+        conn = _seed_db([
+            _job(31, "CleanCo", "Python Engineer",
+                 "python automation LLM agents\n" * 10),
+            _job(32, "FlagCo", "Python Engineer",
+                 "python automation LLM agents\n"
+                 "One-way video interview required.\n" * 10),
+        ])
+        try:
+            out = bestshot(conn, RESUME, C, per_company=5, min_fit=0.0,
+                           limit=50)
+            by_id = {r["rowid"]: r for r in out}
+            self.assertIn(32, by_id)                      # kept, not hidden
+            self.assertGreater(by_id[31]["score"], by_id[32]["score"])
+            self.assertTrue(by_id[32]["screening"])
+        finally:
+            conn.close()
+
+
+class BestshotCohort(unittest.TestCase):
+    def test_from_bestshot_orders_by_fit(self):
+        from src.jobber.batch import Cohort, select_cohort
+        conn = _seed_db([
+            _job(41, "HighFit", "Python Automation Engineer",
+                 "python automation LLM agents pipelines\n" * 10),
+            _job(42, "LowFit", "Python Engineer",
+                 "python systems\n" * 3),
+            _job(43, "OffList", "Java Engineer", "java spring\n" * 10),
+        ])
+        try:
+            rows = select_cohort(conn, Cohort(limit=10, from_bestshot=True),
+                                 resume_text=RESUME)
+            ids = [r["rowid"] for r in rows]
+            self.assertNotIn(43, ids)           # zero fit with the seed
+            self.assertEqual(ids.index(41), 0)  # fit order, not ratio
+        finally:
+            conn.close()
+
 
 class RepostCosine(unittest.TestCase):
     def test_threshold_separates_repost_from_distinct_role(self):

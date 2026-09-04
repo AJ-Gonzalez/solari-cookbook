@@ -14,6 +14,7 @@ Outcome contract per job:
 """
 import json
 import time
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -28,10 +29,12 @@ class Cohort:
     query: str | None = None       # substring on title+company
     eligible_only: bool = True     # skip location_eligible='no'
     limit: int = 10
+    from_bestshot: bool = False    # order by resume-fit instead of ratio
 
-
-def select_cohort(conn, cohort: Cohort) -> list:
-    """Highest-ratio jobs matching the cohort, from 'new' status only."""
+def select_cohort(conn, cohort: Cohort, resume_text: str | None = None) -> list:
+    """Highest-ratio jobs matching the cohort, from 'new' status only
+    (from_bestshot orders by resume-fit instead of ratio). resume_text
+    overrides the resume.md seed for testing."""
     sql = """
         SELECT j.rowid, j.company, j.title, j.url, j.source, j.ratio,
                j.location_eligible, j.comp_min, j.comp_max,
@@ -46,6 +49,24 @@ def select_cohort(conn, cohort: Cohort) -> list:
         sql += " AND (j.title LIKE ? OR j.company LIKE ?)"
         like = f"%{cohort.query}%"
         params += [like, like]
+    if cohort.from_bestshot:
+        # Best-shot order: resume-seeded fit with per-company cap and
+        # dedup; the cohort keeps batch's own statuses ('new' only) and
+        # filters, so needs_human jobs re-enter via the live runner.
+        from .bestshot import bestshot
+        from .criteria import load_criteria
+        rows = bestshot(conn, resume_text,
+                        load_criteria(), per_company=3,
+                        limit=10 ** 6, statuses=("new",))
+        if cohort.query:
+            q = cohort.query.lower()
+            rows = [r for r in rows
+                    if q in (r["title"] or "").lower()
+                    or q in (r["company"] or "").lower()]
+        if cohort.seniority:
+            rows = [r for r in rows
+                    if classify(r["title"] or "") == cohort.seniority]
+        return rows[:cohort.limit]
     rows = conn.execute(sql + " ORDER BY j.ratio DESC", params).fetchall()
     if cohort.seniority:
         rows = [r for r in rows
