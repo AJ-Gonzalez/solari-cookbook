@@ -250,9 +250,11 @@ def cmd_batch_apply(args: argparse.Namespace) -> None:
         sys.exit("no resume at personal/resume.pdf — batch apply attaches it")
     toggles = tomllib.load(open("answers.toml", "rb")).get("toggles", {})
     cohort = Cohort(seniority=args.seniority, query=args.query,
-                    limit=args.limit, from_bestshot=args.from_bestshot)
+                    limit=args.limit, from_bestshot=args.from_bestshot,
+                    worst=args.worst)
     summary = run_batch(conn, cohort, bank, resume,
-                        auto_submit=bool(toggles.get("auto_submit")))
+                        auto_submit=bool(toggles.get("auto_submit")),
+                        browser_mode=args.browser)
     print(f"\nbatch done: {summary}")
 
 
@@ -447,6 +449,13 @@ def main(argv: list[str] | None = None) -> None:
     b.add_argument("--from-bestshot", action="store_true",
                    help="order the cohort by resume fit (bestshot) "
                         "instead of comp-per-requirement ratio")
+    b.add_argument("--worst", action="store_true",
+                   help="with --from-bestshot: take the BOTTOM of the "
+                        "fit ranking instead of the top")
+    b.add_argument("--browser", choices=["local", "solari"],
+                   default="local",
+                   help="solari = stealth cloud browser per job "
+                        "(managed Turnstile/captcha solving)")
     b.set_defaults(func=cmd_batch_apply)
 
     sim = sub.add_parser("similar", parents=[common],

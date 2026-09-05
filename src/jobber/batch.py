@@ -30,6 +30,8 @@ class Cohort:
     eligible_only: bool = True     # skip location_eligible='no'
     limit: int = 10
     from_bestshot: bool = False    # order by resume-fit instead of ratio
+    worst: bool = False            # take the BOTTOM of the bestshot list
+
 
 def select_cohort(conn, cohort: Cohort, resume_text: str | None = None) -> list:
     """Highest-ratio jobs matching the cohort, from 'new' status only
@@ -66,6 +68,10 @@ def select_cohort(conn, cohort: Cohort, resume_text: str | None = None) -> list:
         if cohort.seniority:
             rows = [r for r in rows
                     if classify(r["title"] or "") == cohort.seniority]
+        if cohort.worst:
+            # Bottom of the fit ranking, ascending: the most expendable
+            # applications go first in a test run.
+            return rows[-cohort.limit:][::-1]
         return rows[:cohort.limit]
     rows = conn.execute(sql + " ORDER BY j.ratio DESC", params).fetchall()
     if cohort.seniority:
@@ -88,9 +94,12 @@ def record_outcome(conn, rowid: int, outcome: str, gaps: list[str],
 
 def run_batch(conn, cohort: Cohort, bank: AnswersBank, resume,
               auto_submit: bool = False, fill_fn=fill_job,
-              headless: bool = False, log=print) -> dict:
+              headless: bool = False, log=print,
+              browser_mode: str = "local") -> dict:
     """Run the fill flow over the cohort with a fresh context per job.
-    fill_fn takes (page, url, resume, bank, auto_submit) -> FillResult."""
+    fill_fn takes (page, url, resume, bank, auto_submit) -> FillResult.
+    browser_mode 'solari' swaps the local Chromium for a fresh stealth
+    session per job (managed captcha solving; same fresh-context rule)."""
     rows = select_cohort(conn, cohort)
 
     def now():
@@ -104,18 +113,32 @@ def run_batch(conn, cohort: Cohort, bank: AnswersBank, resume,
 
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=headless)
+        solari = None
+        if browser_mode == "solari":
+            from . import solari_browser
+            solari = solari_browser
+        else:
+            browser = p.chromium.launch(headless=headless)
         for r in rows:
             log(f"\n=== [{r['rowid']}] {r['company']} — {r['title']} ===")
             log(f"    {r['url']}")
-            ctx = browser.new_context(
-                user_agent=("Mozilla/5.0 (X11; Linux x86_64; rv:130.0) "
-                            "Gecko/20100101 Firefox/130.0"),
-                viewport={"width": 1400, "height": 950},
-            )
+            session = None
+            if solari is not None:
+                session = solari.create_session()
+                browser = p.chromium.connect_over_cdp(
+                    session["cdpEndpoint"])
+                ctx = (browser.contexts[0] if browser.contexts
+                       else browser.new_context())
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            else:
+                ctx = browser.new_context(
+                    user_agent=("Mozilla/5.0 (X11; Linux x86_64; rv:130.0) "
+                                "Gecko/20100101 Firefox/130.0"),
+                    viewport={"width": 1400, "height": 950},
+                )
+                page = ctx.new_page()
             result = None
             try:
-                page = ctx.new_page()
                 result = fill_fn(page, r["url"], resume, bank,
                                  auto_submit=auto_submit)
                 outcome = (result.outcome if result.outcome in
@@ -128,7 +151,17 @@ def run_batch(conn, cohort: Cohort, bank: AnswersBank, resume,
                 outcome = "error"
                 log(f"    -> error: {str(e)[:120]}")
             finally:
-                ctx.close()
+                if solari is not None:
+                    try:
+                        browser.close()
+                    finally:
+                        try:
+                            solari.release_session(session["sessionId"])
+                        except Exception as e:
+                            log(f"    -> session release failed: "
+                                f"{str(e)[:80]}")
+                else:
+                    ctx.close()
             record_outcome(conn, r["rowid"], outcome,
                            result.gaps if result else [], now())
             key = (outcome if outcome in ("submitted", "ready")

@@ -239,6 +239,62 @@ class Bestshot(unittest.TestCase):
             conn.close()
 
 
+
+    def test_worst_takes_bottom_ascending(self):
+        from src.jobber.batch import Cohort, select_cohort
+        # three distinct fit levels above the floor; worst picks the two
+        # lowest-fit, ordered ascending (most expendable first).
+        conn = _seed_db([
+            _job(41, "High", "Python Automation Engineer",
+                 "python automation LLM agents pipelines\n" * 10),
+            _job(42, "Mid", "Python Engineer",
+                 "python automation\n" * 4),
+            _job(43, "Low", "Python Engineer",
+                 "python scripts\n" * 2),
+        ])
+        try:
+            rows = select_cohort(conn, Cohort(limit=2, from_bestshot=True,
+                                              worst=True),
+                                 resume_text=RESUME)
+            ids = [r["rowid"] for r in rows]
+            self.assertEqual(set(ids), {42, 43})
+            self.assertEqual(ids, [43, 42])  # ascending fit
+        finally:
+            conn.close()
+
+
+class SolariKey(unittest.TestCase):
+    def test_api_key_env_then_dotenv(self):
+        import os
+        import tempfile
+        from pathlib import Path as P
+        from src.jobber import solari_browser
+        old_env = os.environ.pop("SOLARI_API_KEY", None)
+        old_cwd = os.getcwd()
+        try:
+            # no key anywhere -> exit
+            with tempfile.TemporaryDirectory() as tmp:
+                os.chdir(tmp)
+                with self.assertRaises(SystemExit):
+                    solari_browser.api_key()
+            # .env fallback
+            with tempfile.TemporaryDirectory() as tmp:
+                os.chdir(tmp)
+                P(tmp, ".env").write_text("SOLARI_API_KEY=from-dotenv\n")
+                self.assertEqual(solari_browser.api_key(), "from-dotenv")
+            # env wins over .env
+            with tempfile.TemporaryDirectory() as tmp:
+                os.chdir(tmp)
+                P(tmp, ".env").write_text("SOLARI_API_KEY=from-dotenv\n")
+                os.environ["SOLARI_API_KEY"] = "from-env"
+                self.assertEqual(solari_browser.api_key(), "from-env")
+        finally:
+            os.chdir(old_cwd)
+            os.environ.pop("SOLARI_API_KEY", None)
+            if old_env is not None:
+                os.environ["SOLARI_API_KEY"] = old_env
+
+
 class BestshotCohort(unittest.TestCase):
     def test_from_bestshot_orders_by_fit(self):
         from src.jobber.batch import Cohort, select_cohort
