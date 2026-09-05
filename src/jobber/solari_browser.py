@@ -17,18 +17,22 @@ from urllib import request as _request
 BASE_URL = "https://api.getsolari.com"
 
 
+def _clean(value: str) -> str:
+    # .env files commonly quote values; the quotes must not ride in the
+    # Authorization header.
+    return value.strip().strip("'\"")
+
+
 def api_key() -> str:
-    key = os.environ.get("SOLARI_API_KEY")
+    key = _clean(os.environ.get("SOLARI_API_KEY") or "")
     if key:
         return key
     env = Path(".env")
     if env.exists():
         for line in env.read_text().splitlines():
             if line.startswith("SOLARI_API_KEY="):
-                return line.split("=", 1)[1].strip()
+                return _clean(line.split("=", 1)[1])
     raise SystemExit("no SOLARI_API_KEY in env or .env")
-
-
 def _call(method: str, path: str, body: dict | None = None) -> dict:
     req = _request.Request(
         BASE_URL + path,

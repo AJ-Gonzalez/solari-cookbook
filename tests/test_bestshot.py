@@ -277,11 +277,16 @@ class SolariKey(unittest.TestCase):
                 os.chdir(tmp)
                 with self.assertRaises(SystemExit):
                     solari_browser.api_key()
-            # .env fallback
+            # .env fallback, quoted value (the common .env quoting trap)
             with tempfile.TemporaryDirectory() as tmp:
                 os.chdir(tmp)
-                P(tmp, ".env").write_text("SOLARI_API_KEY=from-dotenv\n")
+                P(tmp, ".env").write_text('SOLARI_API_KEY="from-dotenv"\n')
                 self.assertEqual(solari_browser.api_key(), "from-dotenv")
+            # unquoted value
+            with tempfile.TemporaryDirectory() as tmp:
+                os.chdir(tmp)
+                P(tmp, ".env").write_text("SOLARI_API_KEY=plain\n")
+                self.assertEqual(solari_browser.api_key(), "plain")
             # env wins over .env
             with tempfile.TemporaryDirectory() as tmp:
                 os.chdir(tmp)
