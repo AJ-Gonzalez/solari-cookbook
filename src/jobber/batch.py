@@ -41,7 +41,7 @@ def select_cohort(conn, cohort: Cohort, resume_text: str | None = None) -> list:
     # proven no_form at scale on 2026-09-05 (5/5 attempts). Kept visible
     # in the dashboard bestshot view; only apply cohorts skip them.
     NO_FORM_SOURCES = {"themuse", "wwr", "remoteok", "workingnomads",
-                       "hnwhoishiring"}
+                       "hnwhoishiring", "arbeitnow"}
     sql = """
         SELECT j.rowid, j.company, j.title, j.url, j.source, j.ratio,
                j.location_eligible, j.comp_min, j.comp_max,
