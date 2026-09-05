@@ -75,6 +75,14 @@ def select_cohort(conn, cohort: Cohort, resume_text: str | None = None) -> list:
                     if classify(r["title"] or "") == cohort.seniority]
         rows = [r for r in rows
                 if r.get("source") not in NO_FORM_SOURCES]
+        # Proven no-form trumps source guessing: stripe/databricks jobs
+        # hide their form behind a JS careers-site redirect, so a real
+        # ATS job can no_form just like an aggregator. One strike is
+        # enough — revisit if the driver learns the redirect dance.
+        tried_no_form = {x[0] for x in conn.execute(
+            "SELECT DISTINCT job_rowid FROM apply_runs "
+            "WHERE outcome = 'no_form'")}
+        rows = [r for r in rows if r["rowid"] not in tried_no_form]
         if cohort.worst:
             # Bottom of the fit ranking, ascending: the most expendable
             # applications go first in a test run.
