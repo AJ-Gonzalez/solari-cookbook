@@ -164,7 +164,10 @@ def run_batch(conn, cohort: Cohort, bank: AnswersBank, resume,
                     ctx.close()
             record_outcome(conn, r["rowid"], outcome,
                            result.gaps if result else [], now())
-            key = (outcome if outcome in ("submitted", "ready")
+            # 'ready' lands in the staged bucket: the form was filled,
+            # submit wasn't confirmed — recorded, not applied.
+            key = ("submitted" if outcome == "submitted"
+                   else "staged" if outcome == "ready"
                    else "needs_human" if outcome == "gaps"
                    else "skipped")
             summary[key] += 1
