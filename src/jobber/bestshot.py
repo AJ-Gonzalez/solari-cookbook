@@ -123,7 +123,8 @@ def bestshot(
             p in title_low for p in criteria.bestshot_priority) else fit
         boosted = fit_boosted * penalty
         kept.append({
-            "rowid": r["rowid"], "company": r["company"],
+            "rowid": r["rowid"], "source": r["source"],
+            "company": r["company"],
             "title": r["title"], "url": r["url"], "location": r["location"],
             "location_eligible": r["location_eligible"],
             "comp_min": r["comp_min"], "comp_max": r["comp_max"],

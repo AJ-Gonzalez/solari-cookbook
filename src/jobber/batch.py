@@ -37,6 +37,11 @@ def select_cohort(conn, cohort: Cohort, resume_text: str | None = None) -> list:
     """Highest-ratio jobs matching the cohort, from 'new' status only
     (from_bestshot orders by resume-fit instead of ratio). resume_text
     overrides the resume.md seed for testing."""
+    # Sources whose stored URL is an aggregator page, not an ATS form:
+    # proven no_form at scale on 2026-09-05 (5/5 attempts). Kept visible
+    # in the dashboard bestshot view; only apply cohorts skip them.
+    NO_FORM_SOURCES = {"themuse", "wwr", "remoteok", "workingnomads",
+                       "hnwhoishiring"}
     sql = """
         SELECT j.rowid, j.company, j.title, j.url, j.source, j.ratio,
                j.location_eligible, j.comp_min, j.comp_max,
@@ -68,6 +73,8 @@ def select_cohort(conn, cohort: Cohort, resume_text: str | None = None) -> list:
         if cohort.seniority:
             rows = [r for r in rows
                     if classify(r["title"] or "") == cohort.seniority]
+        rows = [r for r in rows
+                if r.get("source") not in NO_FORM_SOURCES]
         if cohort.worst:
             # Bottom of the fit ranking, ascending: the most expendable
             # applications go first in a test run.
